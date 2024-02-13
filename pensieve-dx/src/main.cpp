@@ -12,6 +12,7 @@
 #include <dxgi1_6.h>
 #include <wrl/client.h>
 
+namespace pensieve {
 namespace {
 auto CALLBACK WindowProc(HWND const hwnd, UINT const msg, WPARAM const wparam,
                          LPARAM const lparam) -> LRESULT {
@@ -101,9 +102,10 @@ auto run() -> std::expected<void, std::string> {
   }
 }
 }
+}
 
 auto main() -> int {
-  if (auto const res{run()}; !res) {
+  if (auto const res{pensieve::run()}; !res) {
     std::cerr << res.error() << '\n';
     return EXIT_FAILURE;
   }

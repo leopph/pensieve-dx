@@ -44,6 +44,9 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Label="Vcpkg">
+    <VcpkgEnableManifest>true</VcpkgEnableManifest>
+  </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <WarningLevel>Level4</WarningLevel>
@@ -80,9 +83,15 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\model_loading.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
+    <None Include="vcpkg.json" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\image_data.hpp" />
+    <ClInclude Include="src\model_loading.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
