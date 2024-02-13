@@ -25,6 +25,9 @@
   <ItemGroup>
     <None Include="packages.config" />
     <None Include="vcpkg.json" />
+    <None Include="src\shaders\draw_data.hlsli" />
+    <None Include="src\shaders\vs_out.hlsli" />
+    <None Include="src\shaders\material.hlsli" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\model_loading.hpp">
@@ -33,5 +36,9 @@
     <ClInclude Include="src\image_data.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="src\shaders\vertex_shader.hlsl" />
+    <FxCompile Include="src\shaders\pixel_shader.hlsl" />
   </ItemGroup>
 </Project>
