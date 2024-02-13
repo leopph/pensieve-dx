@@ -1,7 +1,11 @@
 #include "model_loading.hpp"
 
+#include <algorithm>
 #include <cstring>
 #include <format>
+#include <iterator>
+#include <stack>
+#include <utility>
 
 #include <assimp/Importer.hpp>
 #include <assimp/postprocess.h>
@@ -15,7 +19,9 @@ namespace pensieve {
     std::filesystem::path const& path) -> std::expected<
     ModelData, std::string> {
     Assimp::Importer importer;
-    auto const scene{importer.ReadFile(path.string().c_str(), 0)};
+    auto const scene{
+      importer.ReadFile(path.string().c_str(), aiProcess_ConvertToLeftHanded)
+    };
 
     if (!scene) {
       return std::unexpected{importer.GetErrorString()};
@@ -73,6 +79,55 @@ namespace pensieve {
             std::unique_ptr<std::uint8_t[]>{bytes}
           };
         }
+      }
+    }
+
+    std::stack<std::pair<aiNode const*, aiMatrix4x4>> nodes;
+    nodes.emplace(scene->mRootNode, aiMatrix4x4{});
+
+    while (!nodes.empty()) {
+      auto const [node, parent_transform]{nodes.top()};
+      nodes.pop();
+      auto const node_global_transform{
+        node->mTransformation * parent_transform
+      };
+
+      for (unsigned i{0}; i < node->mNumChildren; i++) {
+        nodes.emplace(node->mChildren[i], node_global_transform);
+      }
+
+      for (unsigned i{0}; i < node->mNumMeshes; i++) {
+        auto const mesh{scene->mMeshes[node->mMeshes[i]]};
+
+        std::vector<DirectX::XMFLOAT4> positions;
+        positions.reserve(mesh->mNumVertices);
+        std::ranges::transform(mesh->mVertices,
+                               mesh->mVertices + mesh->mNumVertices,
+                               std::back_inserter(positions),
+                               [](aiVector3D const& pos) {
+                                 return DirectX::XMFLOAT4{
+                                   pos.x, pos.y, pos.z, 1.0f
+                                 };
+                               });
+
+        ret.meshes.emplace_back(std::move(positions), DirectX::XMFLOAT4X4{
+                                  node_global_transform.a1,
+                                  node_global_transform.b1,
+                                  node_global_transform.c1,
+                                  node_global_transform.d1,
+                                  node_global_transform.a2,
+                                  node_global_transform.b2,
+                                  node_global_transform.c2,
+                                  node_global_transform.d2,
+                                  node_global_transform.a3,
+                                  node_global_transform.b3,
+                                  node_global_transform.c3,
+                                  node_global_transform.d3,
+                                  node_global_transform.a4,
+                                  node_global_transform.b4,
+                                  node_global_transform.c4,
+                                  node_global_transform.d4,
+                                }, mesh->mMaterialIndex);
       }
     }
 

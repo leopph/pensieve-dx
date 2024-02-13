@@ -10,18 +10,15 @@
 #include "image_data.hpp"
 
 namespace pensieve {
-struct Vertex {
-  DirectX::XMFLOAT3X3 position;
-};
-
 struct MaterialData {
   DirectX::XMFLOAT4 base_color;
   ImageData base_texture;
 };
 
 struct MeshData {
-  std::vector<Vertex> vertices;
-  int material_idx;
+  std::vector<DirectX::XMFLOAT4> positions;
+  DirectX::XMFLOAT4X4 transform;
+  unsigned material_idx;
 };
 
 struct ModelData {
