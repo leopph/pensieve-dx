@@ -5,8 +5,8 @@
 
 namespace pensieve {
 struct ImageData {
-  int width;
-  int height;
+  unsigned width;
+  unsigned height;
   std::unique_ptr<std::uint8_t[]> bytes;
 };
 }

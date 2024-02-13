@@ -12,6 +12,8 @@
 #include <dxgi1_6.h>
 #include <wrl/client.h>
 
+#include "model_loading.hpp"
+
 namespace pensieve {
 namespace {
 auto CALLBACK WindowProc(HWND const hwnd, UINT const msg, WPARAM const wparam,
@@ -104,7 +106,19 @@ auto run() -> std::expected<void, std::string> {
 }
 }
 
-auto main() -> int {
+auto main(int const argc, char* argv[]) -> int {
+  if (argc < 2) {
+    std::cout << "Usage: pensieve-dx <path-to-model-file>\n";
+    return EXIT_SUCCESS;
+  }
+
+  auto const model_data{pensieve::LoadModel(argv[1])};
+
+  if (!model_data) {
+    std::cerr << model_data.error() << '\n';
+    return EXIT_FAILURE;
+  }
+
   if (auto const res{pensieve::run()}; !res) {
     std::cerr << res.error() << '\n';
     return EXIT_FAILURE;

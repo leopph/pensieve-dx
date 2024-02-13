@@ -1,6 +1,8 @@
 #pragma once
 
+#include <expected>
 #include <filesystem>
+#include <string>
 #include <vector>
 
 #include <DirectXMath.h>
@@ -13,7 +15,7 @@ struct Vertex {
 };
 
 struct MaterialData {
-  DirectX::XMFLOAT3 base_color;
+  DirectX::XMFLOAT4 base_color;
   ImageData base_texture;
 };
 
@@ -27,5 +29,5 @@ struct ModelData {
   std::vector<MeshData> meshes;
 };
 
-[[nodiscard]] auto LoadModel(std::filesystem::path const& path) -> ModelData;
+[[nodiscard]] auto LoadModel(std::filesystem::path const& path) -> std::expected<ModelData, std::string>;
 }
