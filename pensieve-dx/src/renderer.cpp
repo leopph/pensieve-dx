@@ -8,6 +8,11 @@
 
 using Microsoft::WRL::ComPtr;
 
+extern "C" {
+__declspec(dllexport) extern UINT const D3D12SDKVersion{D3D12_SDK_VERSION};
+__declspec(dllexport) extern char const* D3D12SDKPath{".\\D3D12\\"};
+}
+
 namespace pensieve {
 auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
   UINT factory_create_flags{0};
@@ -24,21 +29,10 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
 
   UINT adapter_idx{0};
   ComPtr<IDXGIAdapter4> adapter;
-
-  while (true) {
-    auto const hr{
-      factory->EnumAdapterByGpuPreference(
-        0, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&adapter))
-    };
-    if (SUCCEEDED(hr)) {
-      break;
-    }
-
-    if (hr != DXGI_ERROR_NOT_FOUND) {
-      return std::unexpected{"Failed to enumerate adapters."};
-    }
-
-    ++adapter_idx;
+  if (FAILED(
+    factory->EnumAdapterByGpuPreference(0, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,
+      IID_PPV_ARGS(&adapter)))) {
+    return std::unexpected{"Failed to get high performance adapter."};
   }
 
   ComPtr<ID3D12Device10> device;
@@ -46,6 +40,27 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
     D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&
       device)))) {
     return std::unexpected{"Failed to create D3D device."};
+  }
+
+  CD3DX12FeatureSupport features;
+  if (FAILED(features.Init(device.Get()))) {
+    return std::unexpected{"Failed to query GPU features."};
+    }
+
+  if (features.ResourceBindingTier() < D3D12_RESOURCE_BINDING_TIER_3) {
+    return std::unexpected{"GPU does not support resource binding tier 3."};
+    }
+
+  if (features.HighestShaderModel() < D3D_SHADER_MODEL_6_6) {
+    return std::unexpected{"GPU does not support shader model 6.6."};
+  }
+
+  if (!features.EnhancedBarriersSupported()) {
+    return std::unexpected{"GPU does not support enhanced barriers."};
+  }
+
+  if (features.MeshShaderTier() < D3D12_MESH_SHADER_TIER_1) {
+    return std::unexpected{"GPU does not support mesh shaders."};
   }
 
   D3D12_COMMAND_QUEUE_DESC constexpr direct_queue_desc{
