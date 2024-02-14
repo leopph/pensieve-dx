@@ -84,6 +84,8 @@
   <ItemGroup>
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\model_loading.cpp" />
+    <ClCompile Include="src\renderer.cpp" />
+    <ClCompile Include="src\window.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
@@ -95,6 +97,8 @@
   <ItemGroup>
     <ClInclude Include="src\image_data.hpp" />
     <ClInclude Include="src\model_loading.hpp" />
+    <ClInclude Include="src\renderer.hpp" />
+    <ClInclude Include="src\window.hpp" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="src\shaders\pixel_shader.hlsl">
