@@ -48,6 +48,9 @@
     <ClInclude Include="src\window.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\util.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="src\shaders\vertex_shader.hlsl" />

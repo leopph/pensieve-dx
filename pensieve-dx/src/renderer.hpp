@@ -23,7 +23,8 @@ public:
 private:
   static auto constexpr swap_chain_buffer_count_{2};
   static auto constexpr swap_chain_format_{DXGI_FORMAT_R8G8B8A8_UNORM};
-  static auto constexpr max_frames_in_flight_{2};
+  static auto constexpr max_gpu_queued_frames_{1};
+  static auto constexpr max_frames_in_flight_{max_gpu_queued_frames_ + 1};
   static auto constexpr res_desc_heap_size_{1'000'000};
 
   Renderer(Microsoft::WRL::ComPtr<IDXGIFactory7> factory,

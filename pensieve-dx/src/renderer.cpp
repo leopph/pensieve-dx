@@ -9,6 +9,9 @@
 #ifndef NDEBUG
 #include <dxgidebug.h>
 #endif
+
+#include "util.hpp"
+
 using Microsoft::WRL::ComPtr;
 
 extern "C" {
@@ -56,7 +59,6 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
     return std::unexpected{"Failed to create DXGI factory."};
   }
 
-  UINT adapter_idx{0};
   ComPtr<IDXGIAdapter4> adapter;
   if (FAILED(
     factory->EnumAdapterByGpuPreference(0, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,
@@ -272,10 +274,40 @@ auto Renderer::DrawFrame() -> std::expected<void, std::string> {
     };
   }
 
+  D3D12_TEXTURE_BARRIER const rt_barrier{
+    D3D12_BARRIER_SYNC_NONE, D3D12_BARRIER_SYNC_RENDER_TARGET,
+    D3D12_BARRIER_ACCESS_NO_ACCESS, D3D12_BARRIER_ACCESS_RENDER_TARGET,
+    D3D12_BARRIER_LAYOUT_UNDEFINED, D3D12_BARRIER_LAYOUT_RENDER_TARGET,
+    swap_chain_buffers_[frame_idx_].Get(), {0, 1, 0, 1, 0, 1},
+    D3D12_TEXTURE_BARRIER_FLAG_NONE
+  };
+
+  D3D12_BARRIER_GROUP const rt_barrier_group{
+    .Type = D3D12_BARRIER_TYPE_TEXTURE, .NumBarriers = 1,
+    .pTextureBarriers = &rt_barrier
+  };
+
+  cmd_lists_[frame_idx_]->Barrier(1, &rt_barrier_group);
+
   cmd_lists_[frame_idx_]->ClearRenderTargetView(
     CD3DX12_CPU_DESCRIPTOR_HANDLE{
       rtv_heap_->GetCPUDescriptorHandleForHeapStart(), frame_idx_, rtv_inc_
     }, std::array{1.0f, 0.0f, 1.0f, 1.0f}.data(), 0, nullptr);
+
+  D3D12_TEXTURE_BARRIER const present_barrier{
+    D3D12_BARRIER_SYNC_RENDER_TARGET, D3D12_BARRIER_SYNC_NONE,
+    D3D12_BARRIER_ACCESS_RENDER_TARGET, D3D12_BARRIER_ACCESS_NO_ACCESS,
+    D3D12_BARRIER_LAYOUT_RENDER_TARGET, D3D12_BARRIER_LAYOUT_PRESENT,
+    swap_chain_buffers_[frame_idx_].Get(), {0, 1, 0, 1, 0, 1},
+    D3D12_TEXTURE_BARRIER_FLAG_NONE
+  };
+
+  D3D12_BARRIER_GROUP const present_barrier_group{
+    .Type = D3D12_BARRIER_TYPE_TEXTURE, .NumBarriers = 1,
+    .pTextureBarriers = &present_barrier
+  };
+
+  cmd_lists_[frame_idx_]->Barrier(1, &present_barrier_group);
 
   if (FAILED(cmd_lists_[frame_idx_]->Close())) {
     return std::unexpected{
@@ -291,6 +323,17 @@ auto Renderer::DrawFrame() -> std::expected<void, std::string> {
   }
 
   frame_idx_ = (frame_idx_ + 1) % max_frames_in_flight_;
+
+  frame_fence_val_ += 1;
+  if (FAILED(direct_queue_->Signal(frame_fence_.Get(), frame_fence_val_))) {
+    return std::unexpected{"Failed to signal frame fence."};
+  }
+
+  if (FAILED(
+    frame_fence_->SetEventOnCompletion(sat_sub<UINT64>(frame_fence_val_,
+      max_gpu_queued_frames_), nullptr))) {
+    return std::unexpected{"Failed to wait for frame fence."};
+  }
 
   return {};
 }

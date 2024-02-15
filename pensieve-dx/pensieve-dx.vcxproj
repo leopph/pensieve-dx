@@ -98,6 +98,7 @@
     <ClInclude Include="src\image_data.hpp" />
     <ClInclude Include="src\model_loading.hpp" />
     <ClInclude Include="src\renderer.hpp" />
+    <ClInclude Include="src\util.hpp" />
     <ClInclude Include="src\window.hpp" />
   </ItemGroup>
   <ItemGroup>
