@@ -6,6 +6,9 @@
 
 #include <d3dx12.h>
 
+#ifndef NDEBUG
+#include <dxgidebug.h>
+#endif
 using Microsoft::WRL::ComPtr;
 
 extern "C" {
@@ -15,6 +18,32 @@ __declspec(dllexport) extern char const* D3D12SDKPath{".\\D3D12\\"};
 
 namespace pensieve {
 auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
+#ifndef NDEBUG
+  ComPtr<ID3D12Debug6> debug;
+  if (FAILED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)))) {
+    return std::unexpected{"Failed to get D3D12 debug."};
+  }
+
+  debug->EnableDebugLayer();
+
+  ComPtr<IDXGIInfoQueue> dxgi_info_queue;
+  if FAILED(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&dxgi_info_queue))) {
+    return std::unexpected{"Failed to get DXGI info queue."};
+  }
+
+  if (FAILED(
+    dxgi_info_queue->SetBreakOnSeverity(DXGI_DEBUG_ALL,
+      DXGI_INFO_QUEUE_MESSAGE_SEVERITY_ERROR, TRUE))) {
+    return std::unexpected{"Failed to set debug break on DXGI error."};
+  }
+
+  if (FAILED(
+    dxgi_info_queue->SetBreakOnSeverity(DXGI_DEBUG_ALL,
+      DXGI_INFO_QUEUE_MESSAGE_SEVERITY_CORRUPTION, TRUE))) {
+    return std::unexpected{"Failed to set debug break on DXGI corruption."};
+  }
+#endif
+
   UINT factory_create_flags{0};
 
 #ifndef NDEBUG
@@ -41,6 +70,24 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
       device)))) {
     return std::unexpected{"Failed to create D3D device."};
   }
+
+#ifndef NDEBUG
+  ComPtr<ID3D12InfoQueue> d3d12_info_queue;
+  if FAILED(device.As(&d3d12_info_queue)) {
+    return std::unexpected{"Failed to get D3D12 info queue."};
+  }
+
+  if (FAILED(
+    d3d12_info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, TRUE))) {
+    return std::unexpected{"Failed to set debug break on D3D12 error."};
+  }
+
+  if (FAILED(
+    d3d12_info_queue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, TRUE
+    ))) {
+    return std::unexpected{"Failed to set debug break on D3D12 corruption."};
+  }
+#endif
 
   CD3DX12FeatureSupport features;
   if (FAILED(features.Init(device.Get()))) {
