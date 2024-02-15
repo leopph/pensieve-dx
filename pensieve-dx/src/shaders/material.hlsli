@@ -4,7 +4,6 @@
 struct Material {
   float3 base_color;
   uint base_texture_idx;
-  float3 pad;
 };
 
 #endif

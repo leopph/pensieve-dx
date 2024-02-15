@@ -1,4 +1,4 @@
-#include "draw_data.hlsli"
+#include "globals.hlsli"
 #include "vs_out.hlsli"
 #include "material.hlsli"
 

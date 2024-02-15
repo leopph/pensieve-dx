@@ -11,12 +11,17 @@
 #include <dxgi1_6.h>
 #include <wrl/client.h>
 
+#include "model_loading.hpp"
+#include "gpu_model.hpp"
 
 namespace pensieve {
 class Renderer {
 public:
   [[nodiscard]] static auto Create(
     HWND hwnd) -> std::expected<Renderer, std::string>;
+
+  auto CreateGpuModel(
+    ModelData const& model_data) -> std::expected<GpuModel, std::string>;
 
   auto DrawFrame() -> std::expected<void, std::string>;
 
@@ -39,9 +44,11 @@ private:
                       max_frames_in_flight_> cmd_allocs,
            std::array<Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList7>,
                       max_frames_in_flight_> cmd_lists,
-           Microsoft::WRL::ComPtr<ID3D12Fence> frame_fence, UINT rtv_inc,
-           UINT res_desc_inc, UINT64 frame_fence_val, UINT swap_chain_flags,
-           UINT present_flags, UINT next_free_res_desc_idx, int frame_idx);
+           Microsoft::WRL::ComPtr<ID3D12Fence> frame_fence,
+           UINT swap_chain_flags, UINT present_flags);
+
+  [[nodiscard]] auto AllocateResourceDescriptorIndex() -> UINT;
+  auto FreeResourceDescriptorIndex(UINT idx) -> void;
 
   Microsoft::WRL::ComPtr<IDXGIFactory7> factory_;
   Microsoft::WRL::ComPtr<ID3D12Device10> device_;
@@ -64,10 +71,15 @@ private:
   UINT rtv_inc_;
   UINT res_desc_inc_;
 
+  std::vector<UINT> res_desc_heap_free_indices_;
+
+  D3D12_CPU_DESCRIPTOR_HANDLE rtv_heap_cpu_start_;
+  D3D12_CPU_DESCRIPTOR_HANDLE res_desc_heap_cpu_start_;
+
   UINT64 frame_fence_val_;
   UINT swap_chain_flags_;
   UINT present_flags_;
-  UINT next_free_res_desc_idx_;
-  int frame_idx_;
+  UINT next_free_res_desc_idx_{0};
+  int frame_idx_{0};
 };
 }

@@ -1,4 +1,4 @@
-#include "draw_data.hlsli"
+#include "globals.hlsli"
 #include "vs_out.hlsli"
 
 VsOut main(const uint vertex_id : SV_VertexID) {

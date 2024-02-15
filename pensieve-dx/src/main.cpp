@@ -32,6 +32,13 @@ auto main(int const argc, char* argv[]) -> int {
     return EXIT_FAILURE;
   }
 
+  auto const gpu_model{renderer.value().CreateGpuModel(model_data.value())};
+
+  if (!gpu_model) {
+    std::cerr << gpu_model.error() << '\n';
+    return EXIT_FAILURE;
+  }
+
   while (!window.value().ShouldClose()) {
     window.value().PollEvents();
     renderer.value().DrawFrame();

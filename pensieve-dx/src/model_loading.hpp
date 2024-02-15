@@ -12,7 +12,7 @@
 namespace pensieve {
 struct MaterialData {
   DirectX::XMFLOAT4 base_color;
-  ImageData base_texture;
+  unsigned base_texture_idx;
 };
 
 struct MeshData {
@@ -22,6 +22,7 @@ struct MeshData {
 };
 
 struct ModelData {
+  std::vector<ImageData> textures;
   std::vector<MaterialData> materials;
   std::vector<MeshData> meshes;
 };

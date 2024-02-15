@@ -1,7 +1,9 @@
 #include "renderer.hpp"
 
+#include <algorithm>
 #include <bit>
 #include <format>
+#include <ranges>
 #include <utility>
 
 #include <d3dx12.h>
@@ -10,6 +12,7 @@
 #include <dxgidebug.h>
 #endif
 
+#include "shader_interop.hpp"
 #include "util.hpp"
 
 using Microsoft::WRL::ComPtr;
@@ -94,11 +97,11 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
   CD3DX12FeatureSupport features;
   if (FAILED(features.Init(device.Get()))) {
     return std::unexpected{"Failed to query GPU features."};
-    }
+  }
 
   if (features.ResourceBindingTier() < D3D12_RESOURCE_BINDING_TIER_3) {
     return std::unexpected{"GPU does not support resource binding tier 3."};
-    }
+  }
 
   if (features.HighestShaderModel() < D3D_SHADER_MODEL_6_6) {
     return std::unexpected{"GPU does not support shader model 6.6."};
@@ -180,6 +183,8 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
     device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV)
   };
 
+  auto const rtv_heap_cpu_start{rtv_heap->GetCPUDescriptorHandleForHeapStart()};
+
   for (UINT i{0}; i < swap_chain_buffer_count_; i++) {
     D3D12_RENDER_TARGET_VIEW_DESC constexpr rtv_desc{
       .Format = swap_chain_format_,
@@ -188,9 +193,8 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
 
     device->CreateRenderTargetView(swap_chain_buffers[i].Get(), &rtv_desc,
                                    CD3DX12_CPU_DESCRIPTOR_HANDLE{
-                                     rtv_heap->
-                                     GetCPUDescriptorHandleForHeapStart(),
-                                     static_cast<INT>(i), rtv_inc
+                                     rtv_heap_cpu_start, static_cast<INT>(i),
+                                     rtv_inc
                                    });
   }
 
@@ -206,18 +210,21 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
     return std::unexpected{"Failed to create resource descriptor heap."};
   }
 
-  auto const res_desc_inc{
+  /*auto const res_desc_inc{
     device->GetDescriptorHandleIncrementSize(
       D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
   };
 
-  for (UINT i{0}; i < res_desc_heap_size_ - 1; i++) {
-    *std::bit_cast<UINT*>(
-      res_desc_heap->GetCPUDescriptorHandleForHeapStart().ptr + static_cast<
-        SIZE_T>(i) * res_desc_inc) = i + 1;
-  }
+  auto const res_desc_heap_cpu_start{
+    res_desc_heap->GetCPUDescriptorHandleForHeapStart()
+  };
 
-  UINT next_free_res_desc_idx{0};
+  // This crashes SRV creation later
+  for (UINT i{0}; i < res_desc_heap_size_ - 1; i++) {
+    *std::bit_cast<UINT*>(CD3DX12_CPU_DESCRIPTOR_HANDLE{
+      res_desc_heap_cpu_start, static_cast<INT>(i), res_desc_inc
+    }) = i + 1;
+  }*/
 
   std::array<ComPtr<ID3D12CommandAllocator>, max_frames_in_flight_> cmd_allocs;
   std::array<ComPtr<ID3D12GraphicsCommandList7>, max_frames_in_flight_>
@@ -249,15 +256,155 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
     return std::unexpected{"Failed to create frame fence."};
   }
 
-  int frame_idx{0};
-
   return Renderer{
     std::move(factory), std::move(device), std::move(direct_queue),
     std::move(swap_chain), std::move(swap_chain_buffers), std::move(rtv_heap),
     std::move(res_desc_heap), std::move(cmd_allocs), std::move(cmd_lists),
-    std::move(frame_fence), rtv_inc, res_desc_inc, frame_fence_val,
-    swap_chain_flags, present_flags, next_free_res_desc_idx, frame_idx
+    std::move(frame_fence), swap_chain_flags, present_flags
   };
+}
+
+auto Renderer::CreateGpuModel(
+  ModelData const& model_data) -> std::expected<GpuModel, std::string> {
+  auto const upload_buffer_size{
+    [&model_data] {
+      UINT64 ret{sizeof(Material)};
+
+      for (auto const& [width, height, bytes] : model_data.textures) {
+        ret = std::max<UINT64>(ret, 4 * width * height);
+      }
+
+      for (auto const& mesh_data : model_data.meshes) {
+        ret = std::max<UINT64>(
+          ret, mesh_data.positions.size() * sizeof(decltype(mesh_data.positions
+          )::value_type));
+      }
+
+      return ret;
+    }()
+  };
+
+  D3D12_HEAP_PROPERTIES constexpr upload_heap_props{
+    D3D12_HEAP_TYPE_UPLOAD, D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
+    D3D12_MEMORY_POOL_UNKNOWN, 0, 0
+  };
+
+  auto const upload_buffer_desc{
+    CD3DX12_RESOURCE_DESC1::Buffer(upload_buffer_size)
+  };
+
+  ComPtr<ID3D12Resource2> upload_buffer;
+  if (FAILED(
+    device_->CreateCommittedResource3(&upload_heap_props, D3D12_HEAP_FLAG_NONE,
+      &upload_buffer_desc, D3D12_BARRIER_LAYOUT_UNDEFINED, nullptr, nullptr, 0,
+      nullptr, IID_PPV_ARGS(&upload_buffer)))) {
+    return std::unexpected{"Failed to create GPU upload buffer."};
+  }
+
+  void* upload_buffer_ptr;
+  if (FAILED(upload_buffer->Map(0, nullptr, &upload_buffer_ptr))) {
+    return std::unexpected{"Failed to map GPU upload buffer."};
+  }
+
+  UINT64 upload_fence_val{0};
+  ComPtr<ID3D12Fence> upload_fence;
+  if (FAILED(
+    device_->CreateFence(upload_fence_val, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&
+      upload_fence)))) {
+    return std::unexpected{"Failed to create upload fence."};
+  }
+
+  D3D12_HEAP_PROPERTIES constexpr default_heap_props{
+    D3D12_HEAP_TYPE_DEFAULT, D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
+    D3D12_MEMORY_POOL_UNKNOWN, 0, 0
+  };
+
+  GpuModel ret;
+
+  for (auto const& [idx, img] : std::ranges::views::enumerate(
+         model_data.textures)) {
+    auto& gpu_tex{ret.textures.emplace_back()};
+    auto const tex_desc{
+      CD3DX12_RESOURCE_DESC1::Tex2D(DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, img.width,
+                                    img.height)
+    };
+    if (FAILED(
+      device_->CreateCommittedResource3(&default_heap_props,
+        D3D12_HEAP_FLAG_NONE , & tex_desc, D3D12_BARRIER_LAYOUT_COPY_DEST,
+        nullptr, nullptr, 0, nullptr, IID_PPV_ARGS(&gpu_tex.res)))) {
+      return std::unexpected{
+        std::format("Failed to create GPU texture {}.", idx)
+      };
+    }
+
+    std::memcpy(upload_buffer_ptr, img.bytes.get(), img.width * img.height * 4);
+
+    if (FAILED(cmd_allocs_[frame_idx_]->Reset())) {
+      return std::unexpected{
+        "Failed to reset command allocator for texture copy."
+      };
+    }
+
+    if (FAILED(
+      cmd_lists_[frame_idx_]->Reset(cmd_allocs_[frame_idx_].Get(), nullptr))) {
+      return std::unexpected{"Failed to reset command list for texture copy."};
+    }
+
+    D3D12_SUBRESOURCE_DATA const tex_data{
+      img.bytes.get(), 4 * img.width, 4 * img.width * img.height
+    };
+
+    UpdateSubresources<1>(cmd_lists_[frame_idx_].Get(), gpu_tex.res.Get(),
+                          upload_buffer.Get(), 0, 0, 1, &tex_data);
+
+    D3D12_TEXTURE_BARRIER const barrier{
+      D3D12_BARRIER_SYNC_COPY, D3D12_BARRIER_SYNC_NONE,
+      D3D12_BARRIER_ACCESS_COPY_DEST, D3D12_BARRIER_ACCESS_NO_ACCESS,
+      D3D12_BARRIER_LAYOUT_COPY_DEST,
+      D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_SHADER_RESOURCE, gpu_tex.res.Get(),
+      {0, 1, 0, 1, 0, 1}, D3D12_TEXTURE_BARRIER_FLAG_NONE
+    };
+
+    D3D12_BARRIER_GROUP const barrier_group{
+      .Type = D3D12_BARRIER_TYPE_TEXTURE, .NumBarriers = 1,
+      .pTextureBarriers = &barrier
+    };
+
+    cmd_lists_[frame_idx_]->Barrier(1, &barrier_group);
+
+    if (FAILED(cmd_lists_[frame_idx_]->Close())) {
+      return std::unexpected{"Failed to close command list for texture copy."};
+    }
+
+    direct_queue_->ExecuteCommandLists(
+      1, CommandListCast(cmd_lists_[frame_idx_].GetAddressOf()));
+
+    ++upload_fence_val;
+    if (FAILED(direct_queue_->Signal(upload_fence.Get(), upload_fence_val))) {
+      return std::unexpected{"Failed to signal upload fence."};
+    }
+
+    if (FAILED(upload_fence->SetEventOnCompletion(upload_fence_val, nullptr))) {
+      return std::unexpected{"Failed to wait for upload fence."};
+    }
+
+    gpu_tex.srv_idx = AllocateResourceDescriptorIndex();
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC const srv_desc{
+      .Format = tex_desc.Format, .ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D,
+      .Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+      .Texture2D = {0, 1, 0, 0.0f}
+    };
+
+    device_->CreateShaderResourceView(gpu_tex.res.Get(), &srv_desc,
+                                      CD3DX12_CPU_DESCRIPTOR_HANDLE{
+                                        res_desc_heap_cpu_start_,
+                                        static_cast<INT>(gpu_tex.srv_idx),
+                                        res_desc_inc_
+                                      });
+  }
+
+  return ret;
 }
 
 auto Renderer::DrawFrame() -> std::expected<void, std::string> {
@@ -290,9 +437,8 @@ auto Renderer::DrawFrame() -> std::expected<void, std::string> {
   cmd_lists_[frame_idx_]->Barrier(1, &rt_barrier_group);
 
   cmd_lists_[frame_idx_]->ClearRenderTargetView(
-    CD3DX12_CPU_DESCRIPTOR_HANDLE{
-      rtv_heap_->GetCPUDescriptorHandleForHeapStart(), frame_idx_, rtv_inc_
-    }, std::array{1.0f, 0.0f, 1.0f, 1.0f}.data(), 0, nullptr);
+    CD3DX12_CPU_DESCRIPTOR_HANDLE{rtv_heap_cpu_start_, frame_idx_, rtv_inc_},
+    std::array{1.0f, 0.0f, 1.0f, 1.0f}.data(), 0, nullptr);
 
   D3D12_TEXTURE_BARRIER const present_barrier{
     D3D12_BARRIER_SYNC_RENDER_TARGET, D3D12_BARRIER_SYNC_NONE,
@@ -348,18 +494,50 @@ Renderer::Renderer(ComPtr<IDXGIFactory7> factory, ComPtr<ID3D12Device10> device,
                               max_frames_in_flight_> cmd_allocs,
                    std::array<ComPtr<ID3D12GraphicsCommandList7>,
                               max_frames_in_flight_> cmd_lists,
-                   ComPtr<ID3D12Fence> frame_fence, UINT const rtv_inc,
-                   UINT const res_desc_inc, UINT64 const frame_fence_val,
-                   UINT const swap_chain_flags, UINT const present_flags,
-                   UINT const next_free_res_desc_idx, int const frame_idx) :
+                   ComPtr<ID3D12Fence> frame_fence, UINT const swap_chain_flags,
+                   UINT const present_flags) :
   factory_{std::move(factory)}, device_{std::move(device)},
   direct_queue_{std::move(direct_queue)}, swap_chain_{std::move(swap_chain)},
   swap_chain_buffers_{std::move(swap_chain_buffers)},
   rtv_heap_{std::move(rtv_heap)}, res_desc_heap_{std::move(res_desc_heap)},
   cmd_allocs_{std::move(cmd_allocs)}, cmd_lists_{std::move(cmd_lists)},
-  frame_fence_{std::move(frame_fence)}, rtv_inc_{rtv_inc},
-  res_desc_inc_{res_desc_inc}, frame_fence_val_{frame_fence_val},
-  swap_chain_flags_{swap_chain_flags}, present_flags_{present_flags},
-  next_free_res_desc_idx_{next_free_res_desc_idx}, frame_idx_{frame_idx} {
+  frame_fence_{std::move(frame_fence)},
+  rtv_inc_{
+    device_->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV)
+  },
+  res_desc_inc_{
+    device_->GetDescriptorHandleIncrementSize(
+      D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
+  }, rtv_heap_cpu_start_{rtv_heap_->GetCPUDescriptorHandleForHeapStart()},
+  res_desc_heap_cpu_start_{
+    res_desc_heap_->GetCPUDescriptorHandleForHeapStart()
+  }, frame_fence_val_{frame_fence_->GetCompletedValue()},
+  swap_chain_flags_{swap_chain_flags}, present_flags_{present_flags} {
+  res_desc_heap_free_indices_.resize(res_desc_heap_size_);
+  for (UINT i{0}; i < res_desc_heap_size_; i++) {
+    res_desc_heap_free_indices_[i] = i;
+  }
+}
+
+auto Renderer::AllocateResourceDescriptorIndex() -> UINT {
+  /* This crashes SRV creation
+  auto const ret{next_free_res_desc_idx_};
+  next_free_res_desc_idx_ = *std::bit_cast<UINT*>(CD3DX12_CPU_DESCRIPTOR_HANDLE{
+    res_desc_heap_cpu_start_, static_cast<INT>(next_free_res_desc_idx_),
+    rtv_inc_
+  }.ptr);
+  return ret;*/
+  auto const ret{res_desc_heap_free_indices_.back()};
+  res_desc_heap_free_indices_.pop_back();
+  return ret;
+}
+
+auto Renderer::FreeResourceDescriptorIndex(UINT const idx) -> void {
+  /* This crashes SRV creation
+  *std::bit_cast<UINT*>(CD3DX12_CPU_DESCRIPTOR_HANDLE{
+    res_desc_heap_cpu_start_, static_cast<INT>(idx), rtv_inc_
+  }) = next_free_res_desc_idx_;
+  next_free_res_desc_idx_ = idx;*/
+  res_desc_heap_free_indices_.push_back(idx);
 }
 }

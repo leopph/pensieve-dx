@@ -5,6 +5,7 @@
 #include <format>
 #include <iterator>
 #include <stack>
+#include <unordered_map>
 #include <utility>
 
 #include <assimp/Importer.hpp>
@@ -26,6 +27,8 @@ auto LoadModel(
     return std::unexpected{importer.GetErrorString()};
   }
 
+  std::unordered_map<std::string, unsigned> texture_indices;
+
   ModelData ret;
 
   ret.materials.reserve(scene->mNumMaterials);
@@ -44,40 +47,62 @@ auto LoadModel(
 
     if (aiString tex_path; mtl->GetTexture(aiTextureType_BASE_COLOR, 0,
                                            &tex_path) == aiReturn_SUCCESS) {
-      if (auto const tex{scene->GetEmbeddedTexture(tex_path.C_Str())}) {
-        if (tex->mHeight == 0) {
-          return std::unexpected{"Found compressed embedded texture."};
-        }
+      texture_indices.try_emplace(tex_path.C_Str(),
+                                  static_cast<unsigned>(texture_indices.
+                                    size()));
+      mtl_data.base_texture_idx = texture_indices[tex_path.C_Str()];
+    }
+  }
 
-        mtl_data.base_texture = {
-          tex->mWidth, tex->mHeight,
-          std::make_unique_for_overwrite<std::uint8_t[]>(
-            tex->mWidth * tex->mHeight * 4)
-        };
-        std::memcpy(mtl_data.base_texture.bytes.get(), tex->pcData,
-                    tex->mWidth * tex->mHeight * 4);
-      } else {
-        auto const tex_path_abs{path.parent_path() / tex_path.C_Str()};
-
+  for (auto const& tex_path : texture_indices | std::views::keys) {
+    if (auto const tex{scene->GetEmbeddedTexture(tex_path.c_str())}) {
+      if (tex->mHeight == 0) {
         int width;
         int height;
         int channels;
         auto const bytes{
-          stbi_load(tex_path_abs.string().c_str(), &width, &height, &channels,
-                    4)
+          stbi_load_from_memory(std::bit_cast<std::uint8_t*>(tex->pcData),
+                                tex->mWidth, &width, &height, &channels, 4)
         };
 
         if (!bytes) {
           return std::unexpected{
-            std::format("Failed to load texture at {}.", tex_path.C_Str())
+            std::format("Failed to load compressed embedded texture \"{}\".",
+                        tex_path.c_str())
           };
         }
 
-        mtl_data.base_texture = {
-          static_cast<unsigned>(width), static_cast<unsigned>(height),
-          std::unique_ptr<std::uint8_t[]>{bytes}
+        ret.textures.emplace_back(static_cast<unsigned>(width),
+                                  static_cast<unsigned>(height),
+                                  std::unique_ptr<std::uint8_t[]>{bytes});
+      } else {
+        auto& tex_data{
+          ret.textures.emplace_back(tex->mWidth, tex->mHeight,
+                                    std::make_unique_for_overwrite<std::uint8_t 
+                                      []>(tex->mWidth * tex->mHeight * 4))
+        };
+        std::memcpy(tex_data.bytes.get(), tex->pcData,
+                    tex->mWidth * tex->mHeight * 4);
+      }
+    } else {
+      auto const tex_path_abs{path.parent_path() / tex_path.c_str()};
+
+      int width;
+      int height;
+      int channels;
+      auto const bytes{
+        stbi_load(tex_path_abs.string().c_str(), &width, &height, &channels, 4)
+      };
+
+      if (!bytes) {
+        return std::unexpected{
+          std::format("Failed to load texture at {}.", tex_path.c_str())
         };
       }
+
+      ret.textures.emplace_back(static_cast<unsigned>(width),
+                                static_cast<unsigned>(height),
+                                std::unique_ptr<std::uint8_t[]>{bytes});
     }
   }
 
