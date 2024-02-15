@@ -1,6 +1,7 @@
 #include <iostream>
 #include <cstdlib>
 
+#include "error.hpp"
 #include "model_loading.hpp"
 #include "renderer.hpp"
 #include "window.hpp"
@@ -14,38 +15,42 @@ auto main(int const argc, char* argv[]) -> int {
   auto window{pensieve::Window::Create()};
 
   if (!window) {
-    std::cerr << window.error() << '\n';
+    pensieve::HandleError(window.error());
     return EXIT_FAILURE;
   }
 
   auto renderer{pensieve::Renderer::Create(window->ToHwnd())};
 
   if (!renderer) {
-    std::cerr << renderer.error() << '\n';
+    pensieve::HandleError(renderer.error());
     return EXIT_FAILURE;
   }
 
   auto const model_data{pensieve::LoadModel(argv[1])};
 
   if (!model_data) {
-    std::cerr << model_data.error() << '\n';
+    pensieve::HandleError(model_data.error());
     return EXIT_FAILURE;
   }
 
   auto const gpu_model{renderer->CreateGpuModel(*model_data)};
 
   if (!gpu_model) {
-    std::cerr << gpu_model.error() << '\n';
+    pensieve::HandleError(gpu_model.error());
     return EXIT_FAILURE;
   }
 
   while (!window->ShouldClose()) {
     window->PollEvents();
-    renderer->DrawFrame(*gpu_model);
+
+    if (auto const exp{renderer->DrawFrame(*gpu_model)}; !exp) {
+      pensieve::HandleError(exp.error());
+      return EXIT_FAILURE;
+    }
   }
 
   if (auto const exp{renderer->WaitForDeviceIdle()}; !exp) {
-    std::cerr << exp.error() << '\n';
+    pensieve::HandleError(exp.error());
     return EXIT_FAILURE;
   }
 

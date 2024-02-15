@@ -20,12 +20,14 @@ public:
   [[nodiscard]] static auto Create(
     HWND hwnd) -> std::expected<Renderer, std::string>;
 
-  auto CreateGpuModel(
+  [[nodiscard]] auto CreateGpuModel(
     ModelData const& model_data) -> std::expected<GpuModel, std::string>;
 
-  auto DrawFrame(GpuModel const& model) -> std::expected<void, std::string>;
+  [[nodiscard]] auto DrawFrame(
+    GpuModel const& model) -> std::expected<void, std::string>;
 
-  auto WaitForDeviceIdle() const -> std::expected<void, std::string>;
+  [[nodiscard]] auto
+  WaitForDeviceIdle() const -> std::expected<void, std::string>;
 
 private:
   static auto constexpr swap_chain_buffer_count_{2};

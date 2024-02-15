@@ -82,6 +82,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\error.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\model_loading.cpp" />
     <ClCompile Include="src\renderer.cpp" />
@@ -96,6 +97,7 @@
     <None Include="vcpkg.json" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\error.hpp" />
     <ClInclude Include="src\gpu_model.hpp" />
     <ClInclude Include="src\image_data.hpp" />
     <ClInclude Include="src\model_loading.hpp" />
