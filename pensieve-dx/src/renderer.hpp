@@ -25,6 +25,8 @@ public:
 
   auto DrawFrame(GpuModel const& model) -> std::expected<void, std::string>;
 
+  auto WaitForDeviceIdle() const -> std::expected<void, std::string>;
+
 private:
   static auto constexpr swap_chain_buffer_count_{2};
   static auto constexpr swap_chain_format_{DXGI_FORMAT_R8G8B8A8_UNORM};

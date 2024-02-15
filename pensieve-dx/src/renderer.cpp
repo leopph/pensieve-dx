@@ -750,6 +750,26 @@ auto Renderer::DrawFrame(GpuModel const& model) -> std::expected<void, std::stri
   return {};
 }
 
+auto Renderer::WaitForDeviceIdle() const -> std::expected<void, std::string> {
+  auto constexpr initial_value{0};
+  auto constexpr completed_value{initial_value + 1};
+
+  ComPtr<ID3D12Fence> fence;
+  if (FAILED(device_->CreateFence(initial_value, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)))) {
+    return std::unexpected{"Failed to create device idle fence."};
+  }
+
+  if (FAILED(direct_queue_->Signal(fence.Get(), completed_value))) {
+    return std::unexpected{"Failed to signal device idle fence."};
+  }
+
+  if (FAILED(fence->SetEventOnCompletion(completed_value, nullptr))) {
+    return std::unexpected{"Failed to wait for device idle fence."};
+  }
+
+  return {};
+}
+
 Renderer::Renderer(ComPtr<IDXGIFactory7> factory, ComPtr<ID3D12Device10> device,
                    ComPtr<ID3D12CommandQueue> direct_queue,
                    ComPtr<IDXGISwapChain4> swap_chain,

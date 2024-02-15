@@ -43,4 +43,11 @@ auto main(int const argc, char* argv[]) -> int {
     window->PollEvents();
     renderer->DrawFrame(*gpu_model);
   }
+
+  if (auto const exp{renderer->WaitForDeviceIdle()}; !exp) {
+    std::cerr << exp.error() << '\n';
+    return EXIT_FAILURE;
+  }
+
+  return EXIT_SUCCESS;
 }
