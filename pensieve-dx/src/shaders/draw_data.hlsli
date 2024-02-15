@@ -6,6 +6,7 @@ struct DrawData {
   uint uv_buf_idx;
   uint mtl_buf_idx;
   uint pad;
+  float4x4 mvp;
 };
 
 #endif

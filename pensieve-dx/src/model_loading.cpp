@@ -34,15 +34,13 @@ auto LoadModel(
   ret.materials.reserve(scene->mNumMaterials);
   for (unsigned i{0}; i < scene->mNumMaterials; i++) {
     auto const mtl{scene->mMaterials[i]};
-    auto& mtl_data = ret.materials.emplace_back(DirectX::XMFLOAT4{
-      1.0f, 1.0f, 1.0f, 1.0f
+    auto& mtl_data = ret.materials.emplace_back(DirectX::XMFLOAT3{
+      1.0f, 1.0f, 1.0f
     });
 
-    if (aiColor4D base_color; mtl->Get(AI_MATKEY_BASE_COLOR, base_color) ==
+    if (aiColor3D base_color; mtl->Get(AI_MATKEY_BASE_COLOR, base_color) ==
       aiReturn_SUCCESS) {
-      mtl_data.base_color = {
-        base_color.r, base_color.g, base_color.b, base_color.a
-      };
+      mtl_data.base_color = {base_color.r, base_color.g, base_color.b};
     }
 
     if (aiString tex_path; mtl->GetTexture(aiTextureType_BASE_COLOR, 0,
@@ -132,7 +130,22 @@ auto LoadModel(
                                };
                              });
 
-      ret.meshes.emplace_back(std::move(positions), DirectX::XMFLOAT4X4{
+      std::vector<DirectX::XMFLOAT2> uvs;
+      uvs.reserve(mesh->mNumVertices);
+      std::ranges::transform(mesh->mTextureCoords[0],
+                             mesh->mTextureCoords[0] + mesh->mNumVertices,
+                             std::back_inserter(uvs), [](aiVector3D const& uv) {
+                               return DirectX::XMFLOAT2{uv.x, uv.y};
+                             });
+
+      std::vector<std::uint32_t> indices;
+      indices.reserve(mesh->mNumFaces * 3);
+      for (unsigned j{0}; j < mesh->mNumFaces; j++) {
+        std::ranges::copy_n(mesh->mFaces[j].mIndices, mesh->mFaces[j].mNumIndices, std::back_inserter(indices));
+      }
+
+      ret.meshes.emplace_back(std::move(positions), std::move(uvs),
+                              std::move(indices), DirectX::XMFLOAT4X4{
                                 node_global_transform.a1,
                                 node_global_transform.b1,
                                 node_global_transform.c1,

@@ -18,7 +18,7 @@ auto main(int const argc, char* argv[]) -> int {
     return EXIT_FAILURE;
   }
 
-  auto renderer{pensieve::Renderer::Create(window.value().ToHwnd())};
+  auto renderer{pensieve::Renderer::Create(window->ToHwnd())};
 
   if (!renderer) {
     std::cerr << renderer.error() << '\n';
@@ -32,15 +32,15 @@ auto main(int const argc, char* argv[]) -> int {
     return EXIT_FAILURE;
   }
 
-  auto const gpu_model{renderer.value().CreateGpuModel(model_data.value())};
+  auto const gpu_model{renderer->CreateGpuModel(*model_data)};
 
   if (!gpu_model) {
     std::cerr << gpu_model.error() << '\n';
     return EXIT_FAILURE;
   }
 
-  while (!window.value().ShouldClose()) {
-    window.value().PollEvents();
-    renderer.value().DrawFrame();
+  while (!window->ShouldClose()) {
+    window->PollEvents();
+    renderer->DrawFrame(*gpu_model);
   }
 }

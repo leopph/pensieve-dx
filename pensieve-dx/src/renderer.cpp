@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cstddef>
 #include <format>
 #include <ranges>
 #include <utility>
@@ -266,9 +267,13 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
 
 auto Renderer::CreateGpuModel(
   ModelData const& model_data) -> std::expected<GpuModel, std::string> {
+  auto constexpr mtl_buffer_size{
+    NextMultipleOf<std::size_t>(256, sizeof(Material))
+  };
+
   auto const upload_buffer_size{
     [&model_data] {
-      UINT64 ret{sizeof(Material)};
+      UINT64 ret{mtl_buffer_size};
 
       for (auto const& [width, height, bytes] : model_data.textures) {
         ret = std::max<UINT64>(ret, 4 * width * height);
@@ -319,11 +324,14 @@ auto Renderer::CreateGpuModel(
     D3D12_MEMORY_POOL_UNKNOWN, 0, 0
   };
 
-  GpuModel ret;
+  GpuModel gpu_model;
+  gpu_model.textures.reserve(model_data.textures.size());
+  gpu_model.materials.reserve(model_data.materials.size());
+  gpu_model.meshes.reserve(model_data.meshes.size());
 
   for (auto const& [idx, img] : std::ranges::views::enumerate(
          model_data.textures)) {
-    auto& gpu_tex{ret.textures.emplace_back()};
+    auto& gpu_tex{gpu_model.textures.emplace_back()};
     auto const tex_desc{
       CD3DX12_RESOURCE_DESC1::Tex2D(DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, img.width,
                                     img.height)
@@ -404,10 +412,268 @@ auto Renderer::CreateGpuModel(
                                       });
   }
 
-  return ret;
+  for (auto const& [idx, mtl_data] : std::ranges::views::enumerate(
+         model_data.materials)) {
+    Material const mtl{
+      mtl_data.base_color, gpu_model.textures[mtl_data.base_texture_idx].srv_idx
+    };
+    std::memcpy(upload_buffer_ptr, &mtl, sizeof(mtl));
+
+    auto const buf_desc{CD3DX12_RESOURCE_DESC1::Buffer(mtl_buffer_size)};
+
+    auto& gpu_mtl{gpu_model.materials.emplace_back()};
+    if (FAILED(
+      device_->CreateCommittedResource3(&default_heap_props,
+        D3D12_HEAP_FLAG_NONE, &buf_desc, D3D12_BARRIER_LAYOUT_UNDEFINED, nullptr
+        , nullptr, 0, nullptr, IID_PPV_ARGS(&gpu_mtl.res)))) {
+      return std::unexpected{
+        std::format("Failed to create GPU material {}.", idx)
+      };
+    }
+
+    if (FAILED(cmd_allocs_[frame_idx_]->Reset())) {
+      return std::unexpected{
+        "Failed to reset command allocator for material copy."
+      };
+    }
+
+    if (FAILED(
+      cmd_lists_[frame_idx_]->Reset(cmd_allocs_[frame_idx_].Get(), nullptr))) {
+      return std::unexpected{"Failed to reset command list for material copy."};
+    }
+
+    cmd_lists_[frame_idx_]->CopyBufferRegion(gpu_mtl.res.Get(), 0,
+                                             upload_buffer.Get(), 0,
+                                             sizeof(Material));
+
+    if (FAILED(cmd_lists_[frame_idx_]->Close())) {
+      return std::unexpected{"Failed to close command list for material copy."};
+    }
+
+    direct_queue_->ExecuteCommandLists(
+      1, CommandListCast(cmd_lists_[frame_idx_].GetAddressOf()));
+
+    ++upload_fence_val;
+    if (FAILED(direct_queue_->Signal(upload_fence.Get(), upload_fence_val))) {
+      return std::unexpected{"Failed to signal upload fence."};
+    }
+
+    if (FAILED(upload_fence->SetEventOnCompletion(upload_fence_val, nullptr))) {
+      return std::unexpected{"Failed to wait for upload fence."};
+    }
+
+    gpu_mtl.cbv_idx = AllocateResourceDescriptorIndex();
+
+    D3D12_CONSTANT_BUFFER_VIEW_DESC const cbv_desc{
+      gpu_mtl.res->GetGPUVirtualAddress(), mtl_buffer_size
+    };
+
+    device_->CreateConstantBufferView(&cbv_desc, CD3DX12_CPU_DESCRIPTOR_HANDLE{
+                                        res_desc_heap_cpu_start_,
+                                        static_cast<INT>(gpu_mtl.cbv_idx),
+                                        res_desc_inc_
+                                      });
+  }
+
+  for (auto const& [idx, mesh_data] : std::ranges::views::enumerate(
+         model_data.meshes)) {
+    auto& gpu_mesh{gpu_model.meshes.emplace_back()};
+
+    auto const position_buffer_size{
+      mesh_data.positions.size() * sizeof(decltype(mesh_data.positions
+      )::value_type)
+    };
+    std::memcpy(upload_buffer_ptr, mesh_data.positions.data(),
+                position_buffer_size);
+
+    auto const pos_buf_desc{
+      CD3DX12_RESOURCE_DESC1::Buffer(position_buffer_size)
+    };
+
+    if FAILED(
+      device_->CreateCommittedResource3(&default_heap_props,
+        D3D12_HEAP_FLAG_NONE, &pos_buf_desc, D3D12_BARRIER_LAYOUT_UNDEFINED,
+        nullptr, nullptr, 0, nullptr, IID_PPV_ARGS(&gpu_mesh.pos_buf))) {
+      return std::unexpected{
+        std::format("Failed to create GPU mesh positions {}.", idx)
+      };
+    }
+
+    if (FAILED(cmd_allocs_[frame_idx_]->Reset())) {
+      return std::unexpected{
+        "Failed to reset command allocator for mesh position copy."
+      };
+    }
+
+    if (FAILED(
+      cmd_lists_[frame_idx_]->Reset(cmd_allocs_[frame_idx_].Get(), nullptr))) {
+      return std::unexpected{
+        "Failed to reset command list for mesh position copy."
+      };
+    }
+
+    cmd_lists_[frame_idx_]->CopyBufferRegion(gpu_mesh.pos_buf.Get(), 0,
+                                             upload_buffer.Get(), 0,
+                                             position_buffer_size);
+
+    if (FAILED(cmd_lists_[frame_idx_]->Close())) {
+      return std::unexpected{
+        "Failed to close command list for mesh position copy."
+      };
+    }
+
+    direct_queue_->ExecuteCommandLists(
+      1, CommandListCast(cmd_lists_[frame_idx_].GetAddressOf()));
+
+    ++upload_fence_val;
+    if (FAILED(direct_queue_->Signal(upload_fence.Get(), upload_fence_val))) {
+      return std::unexpected{"Failed to signal upload fence."};
+    }
+
+    if (FAILED(upload_fence->SetEventOnCompletion(upload_fence_val, nullptr))) {
+      return std::unexpected{"Failed to wait for upload fence."};
+    }
+
+    auto const uv_buffer_size{
+      mesh_data.uvs.size() * sizeof(decltype(mesh_data.uvs)::value_type)
+    };
+    std::memcpy(upload_buffer_ptr, mesh_data.uvs.data(), uv_buffer_size);
+
+    auto const uv_buf_desc{CD3DX12_RESOURCE_DESC1::Buffer(uv_buffer_size)};
+
+    if FAILED(
+      device_->CreateCommittedResource3(&default_heap_props,
+        D3D12_HEAP_FLAG_NONE, &uv_buf_desc, D3D12_BARRIER_LAYOUT_UNDEFINED,
+        nullptr, nullptr, 0, nullptr, IID_PPV_ARGS(&gpu_mesh.uv_buf))) {
+      return std::unexpected{
+        std::format("Failed to create GPU mesh uvs {}.", idx)
+      };
+    }
+
+    if (FAILED(cmd_allocs_[frame_idx_]->Reset())) {
+      return std::unexpected{
+        "Failed to reset command allocator for mesh uv copy."
+      };
+    }
+
+    if (FAILED(
+      cmd_lists_[frame_idx_]->Reset(cmd_allocs_[frame_idx_].Get(), nullptr))) {
+      return std::unexpected{"Failed to reset command list for mesh uv copy."};
+    }
+
+    cmd_lists_[frame_idx_]->CopyBufferRegion(gpu_mesh.uv_buf.Get(), 0,
+                                             upload_buffer.Get(), 0,
+                                             uv_buffer_size);
+
+    if (FAILED(cmd_lists_[frame_idx_]->Close())) {
+      return std::unexpected{"Failed to close command list for mesh uv copy."};
+    }
+
+    direct_queue_->ExecuteCommandLists(
+      1, CommandListCast(cmd_lists_[frame_idx_].GetAddressOf()));
+
+    ++upload_fence_val;
+    if (FAILED(direct_queue_->Signal(upload_fence.Get(), upload_fence_val))) {
+      return std::unexpected{"Failed to signal upload fence."};
+    }
+
+    if (FAILED(upload_fence->SetEventOnCompletion(upload_fence_val, nullptr))) {
+      return std::unexpected{"Failed to wait for upload fence."};
+    }
+
+    auto const idx_buffer_size{
+      mesh_data.indices.size() * sizeof(decltype(mesh_data.indices)::value_type)
+    };
+    std::memcpy(upload_buffer_ptr, mesh_data.indices.data(), idx_buffer_size);
+
+    auto const idx_buf_desc{CD3DX12_RESOURCE_DESC1::Buffer(idx_buffer_size)};
+
+    if FAILED(
+      device_->CreateCommittedResource3(&default_heap_props,
+        D3D12_HEAP_FLAG_NONE, &idx_buf_desc, D3D12_BARRIER_LAYOUT_UNDEFINED,
+        nullptr, nullptr, 0, nullptr, IID_PPV_ARGS(&gpu_mesh.idx_buf))) {
+      return std::unexpected{
+        std::format("Failed to create GPU mesh indices {}.", idx)
+      };
+    }
+
+    if (FAILED(cmd_allocs_[frame_idx_]->Reset())) {
+      return std::unexpected{
+        "Failed to reset command allocator for mesh index copy."
+      };
+    }
+
+    if (FAILED(
+      cmd_lists_[frame_idx_]->Reset(cmd_allocs_[frame_idx_].Get(), nullptr))) {
+      return std::unexpected{"Failed to reset command list for mesh index copy."};
+    }
+
+    cmd_lists_[frame_idx_]->CopyBufferRegion(gpu_mesh.idx_buf.Get(), 0,
+                                             upload_buffer.Get(), 0,
+                                             idx_buffer_size);
+
+    if (FAILED(cmd_lists_[frame_idx_]->Close())) {
+      return std::unexpected{"Failed to close command list for mesh index copy."};
+    }
+
+    direct_queue_->ExecuteCommandLists(
+      1, CommandListCast(cmd_lists_[frame_idx_].GetAddressOf()));
+
+    ++upload_fence_val;
+    if (FAILED(direct_queue_->Signal(upload_fence.Get(), upload_fence_val))) {
+      return std::unexpected{"Failed to signal upload fence."};
+    }
+
+    if (FAILED(upload_fence->SetEventOnCompletion(upload_fence_val, nullptr))) {
+      return std::unexpected{"Failed to wait for upload fence."};
+    }
+
+    gpu_mesh.pos_buf_srv_idx = AllocateResourceDescriptorIndex();
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC const pos_srv_desc{
+      .Format = DXGI_FORMAT_UNKNOWN,
+      .ViewDimension = D3D12_SRV_DIMENSION_BUFFER,
+      .Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+      .Buffer = {
+        0, static_cast<UINT>(mesh_data.positions.size()),
+        sizeof(decltype(mesh_data.positions)::value_type),
+        D3D12_BUFFER_SRV_FLAG_NONE
+      }
+    };
+
+    device_->CreateShaderResourceView(gpu_mesh.pos_buf.Get(), &pos_srv_desc,
+                                      CD3DX12_CPU_DESCRIPTOR_HANDLE{
+                                        res_desc_heap_cpu_start_,
+                                        static_cast<INT>(gpu_mesh.
+                                          pos_buf_srv_idx),
+                                        res_desc_inc_
+                                      });
+
+    gpu_mesh.uv_buf_srv_idx = AllocateResourceDescriptorIndex();
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC const uv_srv_desc{
+      .Format = DXGI_FORMAT_UNKNOWN,
+      .ViewDimension = D3D12_SRV_DIMENSION_BUFFER,
+      .Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+      .Buffer = {
+        0, static_cast<UINT>(mesh_data.uvs.size()),
+        sizeof(decltype(mesh_data.uvs)::value_type), D3D12_BUFFER_SRV_FLAG_NONE
+      }
+    };
+
+    device_->CreateShaderResourceView(gpu_mesh.uv_buf.Get(), &uv_srv_desc,
+                                      CD3DX12_CPU_DESCRIPTOR_HANDLE{
+                                        res_desc_heap_cpu_start_,
+                                        static_cast<INT>(gpu_mesh.
+                                          uv_buf_srv_idx),
+                                        res_desc_inc_
+                                      });
+  }
+
+  return gpu_model;
 }
 
-auto Renderer::DrawFrame() -> std::expected<void, std::string> {
+auto Renderer::DrawFrame(GpuModel const& model) -> std::expected<void, std::string> {
   if (FAILED(cmd_allocs_[frame_idx_]->Reset())) {
     return std::unexpected{
       std::format("Failed to reset command allocator {}.", frame_idx_)
@@ -476,7 +742,7 @@ auto Renderer::DrawFrame() -> std::expected<void, std::string> {
   }
 
   if (FAILED(
-    frame_fence_->SetEventOnCompletion(sat_sub<UINT64>(frame_fence_val_,
+    frame_fence_->SetEventOnCompletion(SatSub<UINT64>(frame_fence_val_,
       max_gpu_queued_frames_), nullptr))) {
     return std::unexpected{"Failed to wait for frame fence."};
   }

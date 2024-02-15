@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <expected>
 #include <filesystem>
 #include <string>
@@ -11,12 +12,14 @@
 
 namespace pensieve {
 struct MaterialData {
-  DirectX::XMFLOAT4 base_color;
+  DirectX::XMFLOAT3 base_color;
   unsigned base_texture_idx;
 };
 
 struct MeshData {
   std::vector<DirectX::XMFLOAT4> positions;
+  std::vector<DirectX::XMFLOAT2> uvs;
+  std::vector<std::uint32_t> indices;
   DirectX::XMFLOAT4X4 transform;
   unsigned material_idx;
 };

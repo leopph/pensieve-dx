@@ -9,6 +9,7 @@ namespace pensieve {
 struct GpuMesh {
   Microsoft::WRL::ComPtr<ID3D12Resource2> pos_buf;
   Microsoft::WRL::ComPtr<ID3D12Resource2> uv_buf;
+  Microsoft::WRL::ComPtr<ID3D12Resource2> idx_buf;
   Microsoft::WRL::ComPtr<ID3D12Resource2> draw_data_buf;
   UINT pos_buf_srv_idx;
   UINT uv_buf_srv_idx;
@@ -16,10 +17,12 @@ struct GpuMesh {
 
 struct GpuMaterial {
   Microsoft::WRL::ComPtr<ID3D12Resource2> res;
+  UINT cbv_idx;
 };
 
 struct GpuTexture {
   Microsoft::WRL::ComPtr<ID3D12Resource2> res;
+  DirectX::XMFLOAT4X4 transform;
   UINT srv_idx;
 };
 

@@ -9,7 +9,7 @@ VsOut main(const uint vertex_id : SV_VertexID) {
   const float2 uv = uvs[vertex_id];
 
   VsOut ret;
-  ret.position_cs = position_os;
+  ret.position_cs = mul(position_os, g_draw_data.mvp);
   ret.uv = uv;
 
   return ret;
