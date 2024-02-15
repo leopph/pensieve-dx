@@ -605,7 +605,9 @@ auto Renderer::CreateGpuModel(
 
     if (FAILED(
       cmd_lists_[frame_idx_]->Reset(cmd_allocs_[frame_idx_].Get(), nullptr))) {
-      return std::unexpected{"Failed to reset command list for mesh index copy."};
+      return std::unexpected{
+        "Failed to reset command list for mesh index copy."
+      };
     }
 
     cmd_lists_[frame_idx_]->CopyBufferRegion(gpu_mesh.idx_buf.Get(), 0,
@@ -613,7 +615,9 @@ auto Renderer::CreateGpuModel(
                                              idx_buffer_size);
 
     if (FAILED(cmd_lists_[frame_idx_]->Close())) {
-      return std::unexpected{"Failed to close command list for mesh index copy."};
+      return std::unexpected{
+        "Failed to close command list for mesh index copy."
+      };
     }
 
     direct_queue_->ExecuteCommandLists(
@@ -668,12 +672,19 @@ auto Renderer::CreateGpuModel(
                                           uv_buf_srv_idx),
                                         res_desc_inc_
                                       });
+
+    gpu_mesh.ibv.Format = DXGI_FORMAT_R32_UINT;
+    gpu_mesh.ibv.BufferLocation = gpu_mesh.idx_buf->GetGPUVirtualAddress();
+    gpu_mesh.ibv.SizeInBytes = static_cast<UINT>(idx_buffer_size);
+
+    gpu_mesh.index_count = static_cast<UINT>(mesh_data.indices.size());
   }
 
   return gpu_model;
 }
 
-auto Renderer::DrawFrame(GpuModel const& model) -> std::expected<void, std::string> {
+auto Renderer::DrawFrame(
+  GpuModel const& model) -> std::expected<void, std::string> {
   if (FAILED(cmd_allocs_[frame_idx_]->Reset())) {
     return std::unexpected{
       std::format("Failed to reset command allocator {}.", frame_idx_)

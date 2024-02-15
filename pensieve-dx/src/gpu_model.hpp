@@ -11,8 +11,10 @@ struct GpuMesh {
   Microsoft::WRL::ComPtr<ID3D12Resource2> uv_buf;
   Microsoft::WRL::ComPtr<ID3D12Resource2> idx_buf;
   Microsoft::WRL::ComPtr<ID3D12Resource2> draw_data_buf;
+  D3D12_INDEX_BUFFER_VIEW ibv;
   UINT pos_buf_srv_idx;
   UINT uv_buf_srv_idx;
+  UINT index_count;
 };
 
 struct GpuMaterial {
