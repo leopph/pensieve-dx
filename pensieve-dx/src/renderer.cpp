@@ -1,10 +1,14 @@
 #include "renderer.hpp"
 
 #include <algorithm>
-#include <bit>
+//#include <bit>
 #include <cstddef>
+#include <cstdint>
+#include <filesystem>
 #include <format>
+#include <fstream>
 #include <ranges>
+#include <stdlib.h>
 #include <utility>
 
 #include <d3dx12.h>
@@ -112,8 +116,8 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
     return std::unexpected{"GPU does not support enhanced barriers."};
   }
 
-  if (features.MeshShaderTier() < D3D12_MESH_SHADER_TIER_1) {
-    return std::unexpected{"GPU does not support mesh shaders."};
+  if (features.HighestRootSignatureVersion() < D3D_ROOT_SIGNATURE_VERSION_1_2) {
+    return std::unexpected{"GPU does not support root signature 1.2."};
   }
 
   D3D12_COMMAND_QUEUE_DESC constexpr direct_queue_desc{
@@ -257,11 +261,101 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
     return std::unexpected{"Failed to create frame fence."};
   }
 
+  CD3DX12_ROOT_PARAMETER1 root_param;
+  root_param.InitAsConstantBufferView(
+    0, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC_WHILE_SET_AT_EXECUTE,
+    D3D12_SHADER_VISIBILITY_ALL);
+  CD3DX12_STATIC_SAMPLER_DESC1 const sampler_desc{0};
+
+  D3D12_VERSIONED_ROOT_SIGNATURE_DESC const root_sig_desc{
+    .Version = D3D_ROOT_SIGNATURE_VERSION_1_2,
+    .Desc_1_2 = {
+      1, &root_param, 1, &sampler_desc,
+      D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED
+    }
+  };
+
+  ComPtr<ID3DBlob> root_sig_blob;
+
+  if (ComPtr<ID3DBlob> root_sig_err_blob; FAILED(
+    D3D12SerializeVersionedRootSignature(&root_sig_desc, &root_sig_blob, &
+      root_sig_err_blob))) {
+    return std::unexpected{
+      std::string{
+        static_cast<char*>(root_sig_err_blob->GetBufferPointer()),
+        root_sig_err_blob->GetBufferSize()
+      }
+    };
+  }
+
+  ComPtr<ID3D12RootSignature> root_sig;
+  if (FAILED(
+    device->CreateRootSignature(0, root_sig_blob->GetBufferPointer(),
+      root_sig_blob->GetBufferSize(), IID_PPV_ARGS(&root_sig)))) {
+    return std::unexpected{"Failed to create root signature."};
+  }
+
+  char* exe_path_str;
+
+  if (_get_pgmptr(&exe_path_str)) {
+    return std::unexpected{"Failed to retrieve executable path."};
+  }
+
+  std::filesystem::path const exe_path{exe_path_str};
+
+  std::ifstream vs_file{
+    exe_path.parent_path() / "vertex_shader.cso",
+    std::ios::in | std::ios::binary
+  };
+
+  if (!vs_file.is_open()) {
+    return std::unexpected{"Failed to load vertex shader file."};
+  }
+
+  std::vector<std::uint8_t> const vs_bytes{
+    std::istreambuf_iterator{vs_file}, {}
+  };
+
+  std::ifstream ps_file{
+    exe_path.parent_path() / "pixel_shader.cso", std::ios::in | std::ios::binary
+  };
+
+  if (!ps_file.is_open()) {
+    return std::unexpected{"Failed to load pixel shader file."};
+  }
+
+  std::vector<std::uint8_t> const ps_bytes{
+    std::istreambuf_iterator{ps_file}, {}
+  };
+
+  struct {
+    CD3DX12_PIPELINE_STATE_STREAM_VS vs;
+    CD3DX12_PIPELINE_STATE_STREAM_PS ps;
+    CD3DX12_PIPELINE_STATE_STREAM_ROOT_SIGNATURE root_sig;
+    CD3DX12_PIPELINE_STATE_STREAM_RENDER_TARGET_FORMATS rt;
+  } pso_desc;
+
+  pso_desc.vs = D3D12_SHADER_BYTECODE{vs_bytes.data(), vs_bytes.size()};
+  pso_desc.ps = D3D12_SHADER_BYTECODE{ps_bytes.data(), ps_bytes.size()};
+  pso_desc.root_sig = root_sig.Get();
+  pso_desc.rt = D3D12_RT_FORMAT_ARRAY{{swap_chain_format_}, 1};
+
+  D3D12_PIPELINE_STATE_STREAM_DESC const pso_stream_desc{
+    sizeof(pso_desc), &pso_desc
+  };
+
+  ComPtr<ID3D12PipelineState> pso;
+  if (FAILED(
+    device->CreatePipelineState(&pso_stream_desc, IID_PPV_ARGS(&pso)))) {
+    return std::unexpected{"Failed to create pipeline state object."};
+  }
+
   return Renderer{
     std::move(factory), std::move(device), std::move(direct_queue),
     std::move(swap_chain), std::move(swap_chain_buffers), std::move(rtv_heap),
     std::move(res_desc_heap), std::move(cmd_allocs), std::move(cmd_lists),
-    std::move(frame_fence), swap_chain_flags, present_flags
+    std::move(frame_fence), std::move(root_sig), std::move(pso),
+    swap_chain_flags, present_flags
   };
 }
 
@@ -692,7 +786,7 @@ auto Renderer::DrawFrame(
   }
 
   if (FAILED(
-    cmd_lists_[frame_idx_]->Reset(cmd_allocs_[frame_idx_].Get(), nullptr))) {
+    cmd_lists_[frame_idx_]->Reset(cmd_allocs_[frame_idx_].Get(), pso_.Get()))) {
     return std::unexpected{
       std::format("Failed to reset command list {}.", frame_idx_)
     };
@@ -732,6 +826,20 @@ auto Renderer::DrawFrame(
 
   cmd_lists_[frame_idx_]->Barrier(1, &present_barrier_group);
 
+  CD3DX12_CPU_DESCRIPTOR_HANDLE const rtv_cpu_handle{
+    rtv_heap_cpu_start_, frame_idx_, rtv_inc_
+  };
+  cmd_lists_[frame_idx_]->OMSetRenderTargets(1, &rtv_cpu_handle, TRUE, nullptr);
+  cmd_lists_[frame_idx_]->SetDescriptorHeaps(1, res_desc_heap_.GetAddressOf());
+  cmd_lists_[frame_idx_]->SetGraphicsRootSignature(root_sig_.Get());
+
+  for (auto const& mesh : model.meshes) {
+    cmd_lists_[frame_idx_]->SetGraphicsRootConstantBufferView(
+      0, mesh.draw_data_buf->GetGPUVirtualAddress());
+    cmd_lists_[frame_idx_]->IASetIndexBuffer(&mesh.ibv);
+    cmd_lists_[frame_idx_]->DrawIndexedInstanced(mesh.index_count, 1, 0, 0, 0);
+  }
+
   if (FAILED(cmd_lists_[frame_idx_]->Close())) {
     return std::unexpected{
       std::format("Failed to close command list {}.", frame_idx_)
@@ -766,7 +874,9 @@ auto Renderer::WaitForDeviceIdle() const -> std::expected<void, std::string> {
   auto constexpr completed_value{initial_value + 1};
 
   ComPtr<ID3D12Fence> fence;
-  if (FAILED(device_->CreateFence(initial_value, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)))) {
+  if (FAILED(
+    device_->CreateFence(initial_value, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&
+      fence)))) {
     return std::unexpected{"Failed to create device idle fence."};
   }
 
@@ -791,14 +901,17 @@ Renderer::Renderer(ComPtr<IDXGIFactory7> factory, ComPtr<ID3D12Device10> device,
                               max_frames_in_flight_> cmd_allocs,
                    std::array<ComPtr<ID3D12GraphicsCommandList7>,
                               max_frames_in_flight_> cmd_lists,
-                   ComPtr<ID3D12Fence> frame_fence, UINT const swap_chain_flags,
-                   UINT const present_flags) :
+                   ComPtr<ID3D12Fence> frame_fence,
+                   Microsoft::WRL::ComPtr<ID3D12RootSignature> root_sig,
+                   Microsoft::WRL::ComPtr<ID3D12PipelineState> pso,
+                   UINT const swap_chain_flags, UINT const present_flags) :
   factory_{std::move(factory)}, device_{std::move(device)},
   direct_queue_{std::move(direct_queue)}, swap_chain_{std::move(swap_chain)},
   swap_chain_buffers_{std::move(swap_chain_buffers)},
   rtv_heap_{std::move(rtv_heap)}, res_desc_heap_{std::move(res_desc_heap)},
   cmd_allocs_{std::move(cmd_allocs)}, cmd_lists_{std::move(cmd_lists)},
-  frame_fence_{std::move(frame_fence)},
+  frame_fence_{std::move(frame_fence)}, root_sig_{std::move(root_sig)},
+  pso_{std::move(pso)},
   rtv_inc_{
     device_->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV)
   },

@@ -2,8 +2,6 @@
 #include "vs_out.hlsli"
 #include "material.hlsli"
 
-SamplerState g_sampler : register(s0, space0);
-
 float4 main(const VsOut vs_out) : SV_Target {
   const ConstantBuffer<Material> material = ResourceDescriptorHeap[g_draw_data.mtl_buf_idx];
 

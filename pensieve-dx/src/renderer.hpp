@@ -47,6 +47,8 @@ private:
            std::array<Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList7>,
                       max_frames_in_flight_> cmd_lists,
            Microsoft::WRL::ComPtr<ID3D12Fence> frame_fence,
+           Microsoft::WRL::ComPtr<ID3D12RootSignature> root_sig,
+           Microsoft::WRL::ComPtr<ID3D12PipelineState> pso,
            UINT swap_chain_flags, UINT present_flags);
 
   [[nodiscard]] auto AllocateResourceDescriptorIndex() -> UINT;
@@ -69,6 +71,9 @@ private:
              max_frames_in_flight_> cmd_lists_;
 
   Microsoft::WRL::ComPtr<ID3D12Fence> frame_fence_;
+
+  Microsoft::WRL::ComPtr<ID3D12RootSignature> root_sig_;
+  Microsoft::WRL::ComPtr<ID3D12PipelineState> pso_;
 
   UINT rtv_inc_;
   UINT res_desc_inc_;
