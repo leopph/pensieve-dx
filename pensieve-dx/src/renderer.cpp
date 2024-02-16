@@ -143,11 +143,23 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
     present_flags |= DXGI_PRESENT_ALLOW_TEARING;
   }
 
+  RECT client_rect;
+  if (FAILED(GetClientRect(hwnd, &client_rect))) {
+    return std::unexpected{"Failed to retrieve window client area dimensions."};
+  }
+
+  auto const client_width{
+    static_cast<UINT>(client_rect.right - client_rect.left)
+  };
+  auto const client_height{
+    static_cast<UINT>(client_rect.bottom - client_rect.top)
+  };
 
   DXGI_SWAP_CHAIN_DESC1 const swap_chain_desc{
-    0, 0, swap_chain_format_, FALSE, {1, 0}, DXGI_USAGE_RENDER_TARGET_OUTPUT,
-    swap_chain_buffer_count_, DXGI_SCALING_STRETCH,
-    DXGI_SWAP_EFFECT_FLIP_DISCARD, DXGI_ALPHA_MODE_UNSPECIFIED, swap_chain_flags
+    client_width, client_height, swap_chain_format_, FALSE, {1, 0},
+    DXGI_USAGE_RENDER_TARGET_OUTPUT, swap_chain_buffer_count_,
+    DXGI_SCALING_STRETCH, DXGI_SWAP_EFFECT_FLIP_DISCARD,
+    DXGI_ALPHA_MODE_UNSPECIFIED, swap_chain_flags
   };
 
   ComPtr<IDXGISwapChain1> swap_chain1;
@@ -162,7 +174,7 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
     return std::unexpected{"Failed to get IDXGISwapChain4 interface."};
   }
 
-  std::array<ComPtr<ID3D12Resource>, swap_chain_buffer_count_>
+  std::array<ComPtr<ID3D12Resource2>, swap_chain_buffer_count_>
     swap_chain_buffers;
   for (UINT i{0}; i < swap_chain_buffer_count_; i++) {
     if (FAILED(
@@ -171,6 +183,26 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
         std::format("Failed to get swap chain buffer {}.", i)
       };
     }
+  }
+
+  CD3DX12_HEAP_PROPERTIES const default_heap_props{D3D12_HEAP_TYPE_DEFAULT};
+
+  auto const depth_buf_desc{
+    CD3DX12_RESOURCE_DESC1::Tex2D(DXGI_FORMAT_D32_FLOAT, client_width,
+                                  client_height, 1, 0, 1, 0,
+                                  D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)
+  };
+
+  CD3DX12_CLEAR_VALUE const depth_buf_clear_value{
+    depth_buf_desc.Format, 0.0f, 0
+  };
+
+  ComPtr<ID3D12Resource2> depth_buffer;
+  if (FAILED(
+    device->CreateCommittedResource3(&default_heap_props, D3D12_HEAP_FLAG_NONE ,
+      &depth_buf_desc, D3D12_BARRIER_LAYOUT_COMMON, &depth_buf_clear_value,
+      nullptr, 0, nullptr, IID_PPV_ARGS(&depth_buffer)))) {
+    return std::unexpected{"Failed to create depth buffer."};
   }
 
   D3D12_DESCRIPTOR_HEAP_DESC constexpr rtv_heap_desc{
@@ -184,23 +216,14 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
     return std::unexpected{"Failed to create RTV heap."};
   }
 
-  auto const rtv_inc{
-    device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV)
+  D3D12_DESCRIPTOR_HEAP_DESC constexpr dsv_heap_desc{
+    D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1, D3D12_DESCRIPTOR_HEAP_FLAG_NONE, 0
   };
 
-  auto const rtv_heap_cpu_start{rtv_heap->GetCPUDescriptorHandleForHeapStart()};
-
-  for (UINT i{0}; i < swap_chain_buffer_count_; i++) {
-    D3D12_RENDER_TARGET_VIEW_DESC constexpr rtv_desc{
-      .Format = swap_chain_format_,
-      .ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D, .Texture2D = {0, 0}
-    };
-
-    device->CreateRenderTargetView(swap_chain_buffers[i].Get(), &rtv_desc,
-                                   CD3DX12_CPU_DESCRIPTOR_HANDLE{
-                                     rtv_heap_cpu_start, static_cast<INT>(i),
-                                     rtv_inc
-                                   });
+  ComPtr<ID3D12DescriptorHeap> dsv_heap;
+  if (FAILED(
+    device->CreateDescriptorHeap(&dsv_heap_desc, IID_PPV_ARGS(&dsv_heap)))) {
+    return std::unexpected{"Failed to create DSV heap."};
   }
 
   D3D12_DESCRIPTOR_HEAP_DESC constexpr res_desc_heap_desc{
@@ -352,7 +375,8 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
 
   return Renderer{
     std::move(factory), std::move(device), std::move(direct_queue),
-    std::move(swap_chain), std::move(swap_chain_buffers), std::move(rtv_heap),
+    std::move(swap_chain), std::move(swap_chain_buffers),
+    std::move(depth_buffer), std::move(rtv_heap), std::move(dsv_heap),
     std::move(res_desc_heap), std::move(cmd_allocs), std::move(cmd_lists),
     std::move(frame_fence), std::move(root_sig), std::move(pso),
     swap_chain_flags, present_flags
@@ -381,6 +405,15 @@ auto Renderer::CreateGpuModel(
 
       return ret;
     }()
+  };
+
+  auto const res_desc_heap_cpu_start{
+    res_desc_heap_->GetCPUDescriptorHandleForHeapStart()
+  };
+
+  auto const res_desc_inc{
+    device_->GetDescriptorHandleIncrementSize(
+      D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
   };
 
   D3D12_HEAP_PROPERTIES constexpr upload_heap_props{
@@ -500,9 +533,9 @@ auto Renderer::CreateGpuModel(
 
     device_->CreateShaderResourceView(gpu_tex.res.Get(), &srv_desc,
                                       CD3DX12_CPU_DESCRIPTOR_HANDLE{
-                                        res_desc_heap_cpu_start_,
+                                        res_desc_heap_cpu_start,
                                         static_cast<INT>(gpu_tex.srv_idx),
-                                        res_desc_inc_
+                                        res_desc_inc
                                       });
   }
 
@@ -563,9 +596,9 @@ auto Renderer::CreateGpuModel(
     };
 
     device_->CreateConstantBufferView(&cbv_desc, CD3DX12_CPU_DESCRIPTOR_HANDLE{
-                                        res_desc_heap_cpu_start_,
+                                        res_desc_heap_cpu_start,
                                         static_cast<INT>(gpu_mtl.cbv_idx),
-                                        res_desc_inc_
+                                        res_desc_inc
                                       });
   }
 
@@ -726,6 +759,28 @@ auto Renderer::CreateGpuModel(
       return std::unexpected{"Failed to wait for upload fence."};
     }
 
+    auto const draw_data_buf_desc{
+      CD3DX12_RESOURCE_DESC1::Buffer(
+        NextMultipleOf<UINT64>(256, sizeof(DrawData)))
+    };
+
+    if (FAILED(
+      device_->CreateCommittedResource3(&upload_heap_props, D3D12_HEAP_FLAG_NONE
+        , &draw_data_buf_desc, D3D12_BARRIER_LAYOUT_UNDEFINED, nullptr, nullptr,
+        0, nullptr, IID_PPV_ARGS(&gpu_mesh.draw_data_buf)))) {
+      return std::unexpected{
+        std::format("Failed to create draw data buffer {}.", idx)
+      };
+    }
+
+    if (FAILED(
+      gpu_mesh.draw_data_buf->Map(0, nullptr, &gpu_mesh.mapped_draw_data_buf
+      ))) {
+      return std::unexpected{
+        std::format("Failed to map draw data buffer {}.", idx)
+      };
+    }
+
     gpu_mesh.pos_buf_srv_idx = AllocateResourceDescriptorIndex();
 
     D3D12_SHADER_RESOURCE_VIEW_DESC const pos_srv_desc{
@@ -741,10 +796,10 @@ auto Renderer::CreateGpuModel(
 
     device_->CreateShaderResourceView(gpu_mesh.pos_buf.Get(), &pos_srv_desc,
                                       CD3DX12_CPU_DESCRIPTOR_HANDLE{
-                                        res_desc_heap_cpu_start_,
+                                        res_desc_heap_cpu_start,
                                         static_cast<INT>(gpu_mesh.
                                           pos_buf_srv_idx),
-                                        res_desc_inc_
+                                        res_desc_inc
                                       });
 
     gpu_mesh.uv_buf_srv_idx = AllocateResourceDescriptorIndex();
@@ -761,17 +816,20 @@ auto Renderer::CreateGpuModel(
 
     device_->CreateShaderResourceView(gpu_mesh.uv_buf.Get(), &uv_srv_desc,
                                       CD3DX12_CPU_DESCRIPTOR_HANDLE{
-                                        res_desc_heap_cpu_start_,
+                                        res_desc_heap_cpu_start,
                                         static_cast<INT>(gpu_mesh.
                                           uv_buf_srv_idx),
-                                        res_desc_inc_
+                                        res_desc_inc
                                       });
 
     gpu_mesh.ibv.Format = DXGI_FORMAT_R32_UINT;
     gpu_mesh.ibv.BufferLocation = gpu_mesh.idx_buf->GetGPUVirtualAddress();
     gpu_mesh.ibv.SizeInBytes = static_cast<UINT>(idx_buffer_size);
 
+    gpu_mesh.mtl_idx = mesh_data.material_idx;
     gpu_mesh.index_count = static_cast<UINT>(mesh_data.indices.size());
+
+    gpu_mesh.transform = mesh_data.transform;
   }
 
   return gpu_model;
@@ -792,30 +850,65 @@ auto Renderer::DrawFrame(
     };
   }
 
-  D3D12_TEXTURE_BARRIER const rt_barrier{
-    D3D12_BARRIER_SYNC_NONE, D3D12_BARRIER_SYNC_RENDER_TARGET,
-    D3D12_BARRIER_ACCESS_NO_ACCESS, D3D12_BARRIER_ACCESS_RENDER_TARGET,
-    D3D12_BARRIER_LAYOUT_UNDEFINED, D3D12_BARRIER_LAYOUT_RENDER_TARGET,
-    swap_chain_buffers_[frame_idx_].Get(), {0, 1, 0, 1, 0, 1},
-    D3D12_TEXTURE_BARRIER_FLAG_NONE
+  std::array const rt_barriers{
+    D3D12_TEXTURE_BARRIER{
+      D3D12_BARRIER_SYNC_NONE, D3D12_BARRIER_SYNC_RENDER_TARGET,
+      D3D12_BARRIER_ACCESS_NO_ACCESS, D3D12_BARRIER_ACCESS_RENDER_TARGET,
+      D3D12_BARRIER_LAYOUT_UNDEFINED, D3D12_BARRIER_LAYOUT_RENDER_TARGET,
+      swap_chain_buffers_[frame_idx_].Get(), {0, 1, 0, 1, 0, 1},
+      D3D12_TEXTURE_BARRIER_FLAG_NONE
+    },
+    D3D12_TEXTURE_BARRIER{
+      D3D12_BARRIER_SYNC_NONE, D3D12_BARRIER_SYNC_DEPTH_STENCIL,
+      D3D12_BARRIER_ACCESS_NO_ACCESS, D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE,
+      D3D12_BARRIER_LAYOUT_UNDEFINED, D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE,
+      depth_buffer_.Get(), {0, 1, 0, 1, 0, 1}, D3D12_TEXTURE_BARRIER_FLAG_NONE
+    },
   };
 
   D3D12_BARRIER_GROUP const rt_barrier_group{
-    .Type = D3D12_BARRIER_TYPE_TEXTURE, .NumBarriers = 1,
-    .pTextureBarriers = &rt_barrier
+    .Type = D3D12_BARRIER_TYPE_TEXTURE,
+    .NumBarriers = static_cast<UINT32>(rt_barriers.size()),
+    .pTextureBarriers = rt_barriers.data()
   };
 
   cmd_lists_[frame_idx_]->Barrier(1, &rt_barrier_group);
 
-  cmd_lists_[frame_idx_]->ClearRenderTargetView(
-    CD3DX12_CPU_DESCRIPTOR_HANDLE{rtv_heap_cpu_start_, frame_idx_, rtv_inc_},
-    std::array{1.0f, 0.0f, 1.0f, 1.0f}.data(), 0, nullptr);
+  auto const back_buf_idx{swap_chain_->GetCurrentBackBufferIndex()};
+
+  cmd_lists_[frame_idx_]->OMSetRenderTargets(1, &rtv_cpu_handles_[back_buf_idx],
+                                             TRUE, &dsv_cpu_handle_);
+  cmd_lists_[frame_idx_]->SetDescriptorHeaps(1, res_desc_heap_.GetAddressOf());
+  cmd_lists_[frame_idx_]->SetGraphicsRootSignature(root_sig_.Get());
+  cmd_lists_[frame_idx_]->IASetPrimitiveTopology(
+    D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+  cmd_lists_[frame_idx_]->ClearRenderTargetView(rtv_cpu_handles_[back_buf_idx],
+                                                std::array{
+                                                  0.0f, 0.0f, 0.0f, 1.0f
+                                                }.data(), 0, nullptr);
+
+  cmd_lists_[frame_idx_]->ClearDepthStencilView(
+    dsv_cpu_handle_, D3D12_CLEAR_FLAG_DEPTH, 0.0f, 0, 0, nullptr);
+
+  for (auto const& mesh : model.meshes) {
+    DrawData const draw_data{
+      mesh.pos_buf_srv_idx, mesh.uv_buf_srv_idx,
+      model.materials[mesh.mtl_idx].cbv_idx, 0, mesh.transform
+    };
+    std::memcpy(mesh.mapped_draw_data_buf, &draw_data, sizeof(draw_data));
+
+    cmd_lists_[frame_idx_]->SetGraphicsRootConstantBufferView(
+      0, mesh.draw_data_buf->GetGPUVirtualAddress());
+    cmd_lists_[frame_idx_]->IASetIndexBuffer(&mesh.ibv);
+    cmd_lists_[frame_idx_]->DrawIndexedInstanced(mesh.index_count, 1, 0, 0, 0);
+  }
 
   D3D12_TEXTURE_BARRIER const present_barrier{
     D3D12_BARRIER_SYNC_RENDER_TARGET, D3D12_BARRIER_SYNC_NONE,
     D3D12_BARRIER_ACCESS_RENDER_TARGET, D3D12_BARRIER_ACCESS_NO_ACCESS,
     D3D12_BARRIER_LAYOUT_RENDER_TARGET, D3D12_BARRIER_LAYOUT_PRESENT,
-    swap_chain_buffers_[frame_idx_].Get(), {0, 1, 0, 1, 0, 1},
+    swap_chain_buffers_[back_buf_idx].Get(), {0, 1, 0, 1, 0, 1},
     D3D12_TEXTURE_BARRIER_FLAG_NONE
   };
 
@@ -825,20 +918,6 @@ auto Renderer::DrawFrame(
   };
 
   cmd_lists_[frame_idx_]->Barrier(1, &present_barrier_group);
-
-  CD3DX12_CPU_DESCRIPTOR_HANDLE const rtv_cpu_handle{
-    rtv_heap_cpu_start_, frame_idx_, rtv_inc_
-  };
-  cmd_lists_[frame_idx_]->OMSetRenderTargets(1, &rtv_cpu_handle, TRUE, nullptr);
-  cmd_lists_[frame_idx_]->SetDescriptorHeaps(1, res_desc_heap_.GetAddressOf());
-  cmd_lists_[frame_idx_]->SetGraphicsRootSignature(root_sig_.Get());
-
-  for (auto const& mesh : model.meshes) {
-    cmd_lists_[frame_idx_]->SetGraphicsRootConstantBufferView(
-      0, mesh.draw_data_buf->GetGPUVirtualAddress());
-    cmd_lists_[frame_idx_]->IASetIndexBuffer(&mesh.ibv);
-    cmd_lists_[frame_idx_]->DrawIndexedInstanced(mesh.index_count, 1, 0, 0, 0);
-  }
 
   if (FAILED(cmd_lists_[frame_idx_]->Close())) {
     return std::unexpected{
@@ -894,39 +973,73 @@ auto Renderer::WaitForDeviceIdle() const -> std::expected<void, std::string> {
 Renderer::Renderer(ComPtr<IDXGIFactory7> factory, ComPtr<ID3D12Device10> device,
                    ComPtr<ID3D12CommandQueue> direct_queue,
                    ComPtr<IDXGISwapChain4> swap_chain,
-                   std::array<ComPtr<ID3D12Resource>, swap_chain_buffer_count_>
-                   swap_chain_buffers, ComPtr<ID3D12DescriptorHeap> rtv_heap,
+                   std::array<ComPtr<ID3D12Resource2>, swap_chain_buffer_count_>
+                   swap_chain_buffers, ComPtr<ID3D12Resource2> depth_buffer,
+                   ComPtr<ID3D12DescriptorHeap> rtv_heap,
+                   ComPtr<ID3D12DescriptorHeap> dsv_heap,
                    ComPtr<ID3D12DescriptorHeap> res_desc_heap,
                    std::array<ComPtr<ID3D12CommandAllocator>,
                               max_frames_in_flight_> cmd_allocs,
                    std::array<ComPtr<ID3D12GraphicsCommandList7>,
                               max_frames_in_flight_> cmd_lists,
                    ComPtr<ID3D12Fence> frame_fence,
-                   Microsoft::WRL::ComPtr<ID3D12RootSignature> root_sig,
-                   Microsoft::WRL::ComPtr<ID3D12PipelineState> pso,
-                   UINT const swap_chain_flags, UINT const present_flags) :
+                   ComPtr<ID3D12RootSignature> root_sig,
+                   ComPtr<ID3D12PipelineState> pso, UINT const swap_chain_flags,
+                   UINT const present_flags) :
   factory_{std::move(factory)}, device_{std::move(device)},
   direct_queue_{std::move(direct_queue)}, swap_chain_{std::move(swap_chain)},
   swap_chain_buffers_{std::move(swap_chain_buffers)},
-  rtv_heap_{std::move(rtv_heap)}, res_desc_heap_{std::move(res_desc_heap)},
+  depth_buffer_{std::move(depth_buffer)}, rtv_heap_{std::move(rtv_heap)},
+  dsv_heap_{std::move(dsv_heap)}, res_desc_heap_{std::move(res_desc_heap)},
   cmd_allocs_{std::move(cmd_allocs)}, cmd_lists_{std::move(cmd_lists)},
   frame_fence_{std::move(frame_fence)}, root_sig_{std::move(root_sig)},
   pso_{std::move(pso)},
-  rtv_inc_{
-    device_->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV)
-  },
-  res_desc_inc_{
-    device_->GetDescriptorHandleIncrementSize(
-      D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
-  }, rtv_heap_cpu_start_{rtv_heap_->GetCPUDescriptorHandleForHeapStart()},
-  res_desc_heap_cpu_start_{
-    res_desc_heap_->GetCPUDescriptorHandleForHeapStart()
+  dsv_cpu_handle_{
+    CD3DX12_CPU_DESCRIPTOR_HANDLE{
+      dsv_heap_->GetCPUDescriptorHandleForHeapStart(), 0,
+      device_->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV)
+    }
   }, frame_fence_val_{frame_fence_->GetCompletedValue()},
   swap_chain_flags_{swap_chain_flags}, present_flags_{present_flags} {
+  auto const rtv_heap_cpu_start{
+    rtv_heap_->GetCPUDescriptorHandleForHeapStart()
+  };
+
+  auto const rtv_inc{
+    device_->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV)
+  };
+
+  for (std::size_t i{0}; i < rtv_cpu_handles_.size(); i++) {
+    rtv_cpu_handles_[i] = CD3DX12_CPU_DESCRIPTOR_HANDLE{
+      rtv_heap_cpu_start, static_cast<INT>(i), rtv_inc
+    };
+  }
+
   res_desc_heap_free_indices_.resize(res_desc_heap_size_);
   for (UINT i{0}; i < res_desc_heap_size_; i++) {
     res_desc_heap_free_indices_[i] = i;
   }
+
+  for (auto i{0}; i < swap_chain_buffer_count_; i++) {
+    D3D12_RENDER_TARGET_VIEW_DESC constexpr rtv_desc{
+      .Format = swap_chain_format_,
+      .ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D, .Texture2D = {0, 0}
+    };
+
+    device_->CreateRenderTargetView(swap_chain_buffers_[i].Get(), &rtv_desc,
+                                    CD3DX12_CPU_DESCRIPTOR_HANDLE{
+                                      rtv_heap_cpu_start, i, rtv_inc
+                                    });
+  }
+
+  D3D12_DEPTH_STENCIL_VIEW_DESC constexpr dsv_desc{
+    .Format = depth_buffer_format_,
+    .ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D,
+    .Flags = D3D12_DSV_FLAG_NONE, .Texture2D = {0}
+  };
+
+  device_->CreateDepthStencilView(depth_buffer_.Get(), &dsv_desc,
+                                  dsv_cpu_handle_);
 }
 
 auto Renderer::AllocateResourceDescriptorIndex() -> UINT {
