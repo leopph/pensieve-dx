@@ -14,7 +14,11 @@
 namespace pensieve {
 struct MaterialData {
   DirectX::XMFLOAT3 base_color;
+  float metallic;
+  float roughness;
   std::optional<unsigned> base_texture_idx;
+  std::optional<unsigned> metallic_texture_idx;
+  std::optional<unsigned> roughness_texture_idx;
 };
 
 struct MeshData {

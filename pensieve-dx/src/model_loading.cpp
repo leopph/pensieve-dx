@@ -44,21 +44,31 @@ auto LoadModel(
   ret.materials.reserve(scene->mNumMaterials);
   for (unsigned i{0}; i < scene->mNumMaterials; i++) {
     auto const mtl{scene->mMaterials[i]};
-    auto& mtl_data = ret.materials.emplace_back(DirectX::XMFLOAT3{
-      1.0f, 1.0f, 1.0f
-    });
+    auto& mtl_data = ret.materials.emplace_back(DirectX::XMFLOAT3{1.0f, 1.0f, 1.0f}, 0.0f, 0.0f);
 
     if (aiColor3D base_color; mtl->Get(AI_MATKEY_BASE_COLOR, base_color) ==
       aiReturn_SUCCESS) {
       mtl_data.base_color = {base_color.r, base_color.g, base_color.b};
     }
 
-    if (aiString tex_path; mtl->GetTexture(aiTextureType_BASE_COLOR, 0,
-                                           &tex_path) == aiReturn_SUCCESS) {
-      texture_indices.try_emplace(tex_path.C_Str(),
-                                  static_cast<unsigned>(texture_indices.
-                                    size()));
-      mtl_data.base_texture_idx = texture_indices[tex_path.C_Str()];
+    if (float metallic; mtl->Get(AI_MATKEY_METALLIC_FACTOR, metallic) == aiReturn_SUCCESS) {
+      mtl_data.metallic = metallic;
+    }
+
+    if (float roughness; mtl->Get(AI_MATKEY_ROUGHNESS_FACTOR, roughness) == aiReturn_SUCCESS) {
+      mtl_data.roughness = roughness;
+    }
+
+    if (aiString tex_path; mtl->GetTexture(AI_MATKEY_BASE_COLOR_TEXTURE, &tex_path) == aiReturn_SUCCESS) {
+      mtl_data.base_texture_idx = texture_indices.try_emplace(tex_path.C_Str(), static_cast<unsigned>(texture_indices.size())).first->second;
+    }
+
+    if (aiString tex_path; mtl->GetTexture(AI_MATKEY_METALLIC_TEXTURE, &tex_path) == aiReturn_SUCCESS) {
+      mtl_data.metallic_texture_idx = texture_indices.try_emplace(tex_path.C_Str(), static_cast<unsigned>(texture_indices.size())).first->second;
+    }
+
+    if (aiString tex_path; mtl->GetTexture(AI_MATKEY_ROUGHNESS_TEXTURE, &tex_path) == aiReturn_SUCCESS) {
+      mtl_data.roughness_texture_idx = texture_indices.try_emplace(tex_path.C_Str(), static_cast<unsigned>(texture_indices.size())).first->second;
     }
   }
 

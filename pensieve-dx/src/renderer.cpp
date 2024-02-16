@@ -559,9 +559,17 @@ auto Renderer::CreateGpuModel(
          model_data.materials)) {
     Material const mtl{
       mtl_data.base_color,
+      mtl_data.metallic,
+      mtl_data.roughness,
       mtl_data.base_texture_idx
         ? gpu_model.textures[*mtl_data.base_texture_idx].srv_idx
-        : INVALID_RESOURCE_IDX
+        : INVALID_RESOURCE_IDX,
+      mtl_data.metallic_texture_idx
+      ? gpu_model.textures[*mtl_data.metallic_texture_idx].srv_idx
+      : INVALID_RESOURCE_IDX,
+      mtl_data.roughness_texture_idx
+      ? gpu_model.textures[*mtl_data.roughness_texture_idx].srv_idx
+      : INVALID_RESOURCE_IDX
     };
     std::memcpy(upload_buffer_ptr, &mtl, sizeof(mtl));
 
