@@ -188,8 +188,8 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
   CD3DX12_HEAP_PROPERTIES const default_heap_props{D3D12_HEAP_TYPE_DEFAULT};
 
   auto const depth_buf_desc{
-    CD3DX12_RESOURCE_DESC1::Tex2D(DXGI_FORMAT_D32_FLOAT, client_width,
-                                  client_height, 1, 0, 1, 0,
+    CD3DX12_RESOURCE_DESC1::Tex2D(depth_buffer_format_, client_width,
+                                  client_height, 1, 1, 1, 0,
                                   D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)
   };
 
@@ -355,13 +355,20 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
     CD3DX12_PIPELINE_STATE_STREAM_VS vs;
     CD3DX12_PIPELINE_STATE_STREAM_PS ps;
     CD3DX12_PIPELINE_STATE_STREAM_ROOT_SIGNATURE root_sig;
-    CD3DX12_PIPELINE_STATE_STREAM_RENDER_TARGET_FORMATS rt;
+    CD3DX12_PIPELINE_STATE_STREAM_RENDER_TARGET_FORMATS rt_formats;
+    CD3DX12_PIPELINE_STATE_STREAM_DEPTH_STENCIL2 ds;
+    CD3DX12_PIPELINE_STATE_STREAM_DEPTH_STENCIL_FORMAT ds_format;
   } pso_desc;
 
   pso_desc.vs = D3D12_SHADER_BYTECODE{vs_bytes.data(), vs_bytes.size()};
   pso_desc.ps = D3D12_SHADER_BYTECODE{ps_bytes.data(), ps_bytes.size()};
   pso_desc.root_sig = root_sig.Get();
-  pso_desc.rt = D3D12_RT_FORMAT_ARRAY{{swap_chain_format_}, 1};
+  pso_desc.rt_formats = D3D12_RT_FORMAT_ARRAY{{swap_chain_format_}, 1};
+  pso_desc.ds = CD3DX12_DEPTH_STENCIL_DESC2{
+    TRUE, D3D12_DEPTH_WRITE_MASK_ALL, D3D12_COMPARISON_FUNC_GREATER, FALSE, {}, {},
+    {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}
+  };
+  pso_desc.ds_format = depth_buffer_format_;
 
   D3D12_PIPELINE_STATE_STREAM_DESC const pso_stream_desc{
     sizeof(pso_desc), &pso_desc
@@ -837,6 +844,17 @@ auto Renderer::CreateGpuModel(
 
 auto Renderer::DrawFrame(
   GpuModel const& model) -> std::expected<void, std::string> {
+  auto const back_buf_idx{swap_chain_->GetCurrentBackBufferIndex()};
+  auto const back_buf_desc{swap_chain_buffers_[back_buf_idx]->GetDesc1()};
+  auto const aspect_ratio{
+    static_cast<float>(back_buf_desc.Width) / static_cast<float>(back_buf_desc.
+      Height)
+  };
+
+  auto const view_mtx{DirectX::XMMatrixLookToLH(DirectX::XMVectorSet(0, 0, -25, 1), DirectX::XMVectorSet(0, 0, 1, 1), DirectX::XMVectorSet(0, 1, 0, 1))};
+  auto const proj_mtx{DirectX::XMMatrixPerspectiveFovLH(DirectX::XMConvertToRadians(60), aspect_ratio, 100.0f, 0.1f)};
+  auto const view_proj_mtx{XMMatrixMultiply(view_mtx, proj_mtx)};
+
   if (FAILED(cmd_allocs_[frame_idx_]->Reset())) {
     return std::unexpected{
       std::format("Failed to reset command allocator {}.", frame_idx_)
@@ -874,14 +892,24 @@ auto Renderer::DrawFrame(
 
   cmd_lists_[frame_idx_]->Barrier(1, &rt_barrier_group);
 
-  auto const back_buf_idx{swap_chain_->GetCurrentBackBufferIndex()};
-
   cmd_lists_[frame_idx_]->OMSetRenderTargets(1, &rtv_cpu_handles_[back_buf_idx],
                                              TRUE, &dsv_cpu_handle_);
   cmd_lists_[frame_idx_]->SetDescriptorHeaps(1, res_desc_heap_.GetAddressOf());
   cmd_lists_[frame_idx_]->SetGraphicsRootSignature(root_sig_.Get());
   cmd_lists_[frame_idx_]->IASetPrimitiveTopology(
     D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+  CD3DX12_VIEWPORT const viewport{
+    0.0f, 0.0f, static_cast<FLOAT>(back_buf_desc.Width),
+    static_cast<FLOAT>(back_buf_desc.Height)
+  };
+  CD3DX12_RECT const scissor{
+    0, 0, static_cast<LONG>(back_buf_desc.Width),
+    static_cast<LONG>(back_buf_desc.Height)
+  };
+
+  cmd_lists_[frame_idx_]->RSSetViewports(1, &viewport);
+  cmd_lists_[frame_idx_]->RSSetScissorRects(1, &scissor);
 
   cmd_lists_[frame_idx_]->ClearRenderTargetView(rtv_cpu_handles_[back_buf_idx],
                                                 std::array{
@@ -892,10 +920,13 @@ auto Renderer::DrawFrame(
     dsv_cpu_handle_, D3D12_CLEAR_FLAG_DEPTH, 0.0f, 0, 0, nullptr);
 
   for (auto const& mesh : model.meshes) {
-    DrawData const draw_data{
+    DrawData draw_data{
       mesh.pos_buf_srv_idx, mesh.uv_buf_srv_idx,
-      model.materials[mesh.mtl_idx].cbv_idx, 0, mesh.transform
+      model.materials[mesh.mtl_idx].cbv_idx, 0
     };
+
+    DirectX::XMStoreFloat4x4(&draw_data.mvp, XMMatrixMultiply(XMLoadFloat4x4(&mesh.transform), view_proj_mtx));
+
     std::memcpy(mesh.mapped_draw_data_buf, &draw_data, sizeof(draw_data));
 
     cmd_lists_[frame_idx_]->SetGraphicsRootConstantBufferView(
