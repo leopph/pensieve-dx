@@ -7,3 +7,4 @@
 
 #include "shaders/material.hlsli"
 #include "shaders/draw_data.hlsli"
+#include "shaders/common.hlsli"

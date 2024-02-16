@@ -365,8 +365,8 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
   pso_desc.root_sig = root_sig.Get();
   pso_desc.rt_formats = D3D12_RT_FORMAT_ARRAY{{swap_chain_format_}, 1};
   pso_desc.ds = CD3DX12_DEPTH_STENCIL_DESC2{
-    TRUE, D3D12_DEPTH_WRITE_MASK_ALL, D3D12_COMPARISON_FUNC_GREATER, FALSE, {}, {},
-    {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}
+    TRUE, D3D12_DEPTH_WRITE_MASK_ALL, D3D12_COMPARISON_FUNC_GREATER, FALSE, {},
+    {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}
   };
   pso_desc.ds_format = depth_buffer_format_;
 
@@ -393,7 +393,8 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
 auto Renderer::CreateGpuModel(
   ModelData const& model_data) -> std::expected<GpuModel, std::string> {
   auto constexpr mtl_buffer_size{
-    NextMultipleOf<std::size_t>(256, sizeof(Material))
+    std::max(NextMultipleOf<UINT64>(256, sizeof(Material)),
+             NextMultipleOf<UINT64>(256, sizeof(DrawData)))
   };
 
   auto const upload_buffer_size{
@@ -407,6 +408,14 @@ auto Renderer::CreateGpuModel(
       for (auto const& mesh_data : model_data.meshes) {
         ret = std::max<UINT64>(
           ret, mesh_data.positions.size() * sizeof(decltype(mesh_data.positions
+          )::value_type));
+        if (mesh_data.uvs) {
+          ret = std::max<UINT64>(
+            ret, mesh_data.uvs->size() * sizeof(decltype(mesh_data.uvs
+            )::value_type::value_type));
+        }
+        ret = std::max<UINT64>(
+          ret, mesh_data.indices.size() * sizeof(decltype(mesh_data.indices
           )::value_type));
       }
 
@@ -549,7 +558,10 @@ auto Renderer::CreateGpuModel(
   for (auto const& [idx, mtl_data] : std::ranges::views::enumerate(
          model_data.materials)) {
     Material const mtl{
-      mtl_data.base_color, mtl_data.base_texture_idx ? gpu_model.textures[*mtl_data.base_texture_idx].srv_idx : INVALID_TEXTURE_IDX
+      mtl_data.base_color,
+      mtl_data.base_texture_idx
+        ? gpu_model.textures[*mtl_data.base_texture_idx].srv_idx
+        : INVALID_RESOURCE_IDX
     };
     std::memcpy(upload_buffer_ptr, &mtl, sizeof(mtl));
 
@@ -599,7 +611,7 @@ auto Renderer::CreateGpuModel(
     gpu_mtl.cbv_idx = AllocateResourceDescriptorIndex();
 
     D3D12_CONSTANT_BUFFER_VIEW_DESC const cbv_desc{
-      gpu_mtl.res->GetGPUVirtualAddress(), mtl_buffer_size
+      gpu_mtl.res->GetGPUVirtualAddress(), static_cast<UINT>(mtl_buffer_size)
     };
 
     device_->CreateConstantBufferView(&cbv_desc, CD3DX12_CPU_DESCRIPTOR_HANDLE{
@@ -668,51 +680,104 @@ auto Renderer::CreateGpuModel(
       return std::unexpected{"Failed to wait for upload fence."};
     }
 
-    auto const uv_buffer_size{
-      mesh_data.uvs.size() * sizeof(decltype(mesh_data.uvs)::value_type)
+    gpu_mesh.pos_buf_srv_idx = AllocateResourceDescriptorIndex();
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC const pos_srv_desc{
+      .Format = DXGI_FORMAT_UNKNOWN,
+      .ViewDimension = D3D12_SRV_DIMENSION_BUFFER,
+      .Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+      .Buffer = {
+        0, static_cast<UINT>(mesh_data.positions.size()),
+        sizeof(decltype(mesh_data.positions)::value_type),
+        D3D12_BUFFER_SRV_FLAG_NONE
+      }
     };
-    std::memcpy(upload_buffer_ptr, mesh_data.uvs.data(), uv_buffer_size);
 
-    auto const uv_buf_desc{CD3DX12_RESOURCE_DESC1::Buffer(uv_buffer_size)};
+    device_->CreateShaderResourceView(gpu_mesh.pos_buf.Get(), &pos_srv_desc,
+                                      CD3DX12_CPU_DESCRIPTOR_HANDLE{
+                                        res_desc_heap_cpu_start,
+                                        static_cast<INT>(gpu_mesh.
+                                          pos_buf_srv_idx),
+                                        res_desc_inc
+                                      });
 
-    if FAILED(
-      device_->CreateCommittedResource3(&default_heap_props,
-        D3D12_HEAP_FLAG_NONE, &uv_buf_desc, D3D12_BARRIER_LAYOUT_UNDEFINED,
-        nullptr, nullptr, 0, nullptr, IID_PPV_ARGS(&gpu_mesh.uv_buf))) {
-      return std::unexpected{
-        std::format("Failed to create GPU mesh uvs {}.", idx)
+    if (mesh_data.uvs) {
+      gpu_mesh.uv_buf.emplace();
+
+      auto const uv_buffer_size{
+        mesh_data.uvs->size() * sizeof(decltype(mesh_data.uvs
+        )::value_type::value_type)
       };
-    }
+      std::memcpy(upload_buffer_ptr, mesh_data.uvs->data(), uv_buffer_size);
 
-    if (FAILED(cmd_allocs_[frame_idx_]->Reset())) {
-      return std::unexpected{
-        "Failed to reset command allocator for mesh uv copy."
+      auto const uv_buf_desc{CD3DX12_RESOURCE_DESC1::Buffer(uv_buffer_size)};
+
+      if FAILED(
+        device_->CreateCommittedResource3(&default_heap_props,
+          D3D12_HEAP_FLAG_NONE, &uv_buf_desc, D3D12_BARRIER_LAYOUT_UNDEFINED,
+          nullptr, nullptr, 0, nullptr, IID_PPV_ARGS(&(*gpu_mesh.uv_buf)))) {
+        return std::unexpected{
+          std::format("Failed to create GPU mesh uvs {}.", idx)
+        };
+      }
+
+      if (FAILED(cmd_allocs_[frame_idx_]->Reset())) {
+        return std::unexpected{
+          "Failed to reset command allocator for mesh uv copy."
+        };
+      }
+
+      if (FAILED(
+        cmd_lists_[frame_idx_]->Reset(cmd_allocs_[frame_idx_].Get(), nullptr
+        ))) {
+        return std::unexpected{
+          "Failed to reset command list for mesh uv copy."
+        };
+      }
+
+      cmd_lists_[frame_idx_]->CopyBufferRegion(gpu_mesh.uv_buf->Get(), 0,
+                                               upload_buffer.Get(), 0,
+                                               uv_buffer_size);
+
+      if (FAILED(cmd_lists_[frame_idx_]->Close())) {
+        return std::unexpected{
+          "Failed to close command list for mesh uv copy."
+        };
+      }
+
+      direct_queue_->ExecuteCommandLists(
+        1, CommandListCast(cmd_lists_[frame_idx_].GetAddressOf()));
+
+      ++upload_fence_val;
+      if (FAILED(direct_queue_->Signal(upload_fence.Get(), upload_fence_val))) {
+        return std::unexpected{"Failed to signal upload fence."};
+      }
+
+      if (FAILED(
+        upload_fence->SetEventOnCompletion(upload_fence_val, nullptr))) {
+        return std::unexpected{"Failed to wait for upload fence."};
+      }
+
+      gpu_mesh.uv_buf_srv_idx = AllocateResourceDescriptorIndex();
+
+      D3D12_SHADER_RESOURCE_VIEW_DESC const uv_srv_desc{
+        .Format = DXGI_FORMAT_UNKNOWN,
+        .ViewDimension = D3D12_SRV_DIMENSION_BUFFER,
+        .Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+        .Buffer = {
+          0, static_cast<UINT>(mesh_data.uvs->size()),
+          sizeof(decltype(mesh_data.uvs)::value_type::value_type),
+          D3D12_BUFFER_SRV_FLAG_NONE
+        }
       };
-    }
 
-    if (FAILED(
-      cmd_lists_[frame_idx_]->Reset(cmd_allocs_[frame_idx_].Get(), nullptr))) {
-      return std::unexpected{"Failed to reset command list for mesh uv copy."};
-    }
-
-    cmd_lists_[frame_idx_]->CopyBufferRegion(gpu_mesh.uv_buf.Get(), 0,
-                                             upload_buffer.Get(), 0,
-                                             uv_buffer_size);
-
-    if (FAILED(cmd_lists_[frame_idx_]->Close())) {
-      return std::unexpected{"Failed to close command list for mesh uv copy."};
-    }
-
-    direct_queue_->ExecuteCommandLists(
-      1, CommandListCast(cmd_lists_[frame_idx_].GetAddressOf()));
-
-    ++upload_fence_val;
-    if (FAILED(direct_queue_->Signal(upload_fence.Get(), upload_fence_val))) {
-      return std::unexpected{"Failed to signal upload fence."};
-    }
-
-    if (FAILED(upload_fence->SetEventOnCompletion(upload_fence_val, nullptr))) {
-      return std::unexpected{"Failed to wait for upload fence."};
+      device_->CreateShaderResourceView(gpu_mesh.uv_buf->Get(), &uv_srv_desc,
+                                        CD3DX12_CPU_DESCRIPTOR_HANDLE{
+                                          res_desc_heap_cpu_start,
+                                          static_cast<INT>(*gpu_mesh.
+                                            uv_buf_srv_idx),
+                                          res_desc_inc
+                                        });
     }
 
     auto const idx_buffer_size{
@@ -788,47 +853,6 @@ auto Renderer::CreateGpuModel(
       };
     }
 
-    gpu_mesh.pos_buf_srv_idx = AllocateResourceDescriptorIndex();
-
-    D3D12_SHADER_RESOURCE_VIEW_DESC const pos_srv_desc{
-      .Format = DXGI_FORMAT_UNKNOWN,
-      .ViewDimension = D3D12_SRV_DIMENSION_BUFFER,
-      .Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
-      .Buffer = {
-        0, static_cast<UINT>(mesh_data.positions.size()),
-        sizeof(decltype(mesh_data.positions)::value_type),
-        D3D12_BUFFER_SRV_FLAG_NONE
-      }
-    };
-
-    device_->CreateShaderResourceView(gpu_mesh.pos_buf.Get(), &pos_srv_desc,
-                                      CD3DX12_CPU_DESCRIPTOR_HANDLE{
-                                        res_desc_heap_cpu_start,
-                                        static_cast<INT>(gpu_mesh.
-                                          pos_buf_srv_idx),
-                                        res_desc_inc
-                                      });
-
-    gpu_mesh.uv_buf_srv_idx = AllocateResourceDescriptorIndex();
-
-    D3D12_SHADER_RESOURCE_VIEW_DESC const uv_srv_desc{
-      .Format = DXGI_FORMAT_UNKNOWN,
-      .ViewDimension = D3D12_SRV_DIMENSION_BUFFER,
-      .Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
-      .Buffer = {
-        0, static_cast<UINT>(mesh_data.uvs.size()),
-        sizeof(decltype(mesh_data.uvs)::value_type), D3D12_BUFFER_SRV_FLAG_NONE
-      }
-    };
-
-    device_->CreateShaderResourceView(gpu_mesh.uv_buf.Get(), &uv_srv_desc,
-                                      CD3DX12_CPU_DESCRIPTOR_HANDLE{
-                                        res_desc_heap_cpu_start,
-                                        static_cast<INT>(gpu_mesh.
-                                          uv_buf_srv_idx),
-                                        res_desc_inc
-                                      });
-
     gpu_mesh.ibv.Format = DXGI_FORMAT_R32_UINT;
     gpu_mesh.ibv.BufferLocation = gpu_mesh.idx_buf->GetGPUVirtualAddress();
     gpu_mesh.ibv.SizeInBytes = static_cast<UINT>(idx_buffer_size);
@@ -851,8 +875,15 @@ auto Renderer::DrawFrame(
       Height)
   };
 
-  auto const view_mtx{DirectX::XMMatrixLookToLH(DirectX::XMVectorSet(0, 0, -25, 1), DirectX::XMVectorSet(0, 0, 1, 1), DirectX::XMVectorSet(0, 1, 0, 1))};
-  auto const proj_mtx{DirectX::XMMatrixPerspectiveFovLH(DirectX::XMConvertToRadians(60), aspect_ratio, 100.0f, 0.1f)};
+  auto const view_mtx{
+    DirectX::XMMatrixLookToLH(DirectX::XMVectorSet(0, 0, -5, 1),
+                              DirectX::XMVectorSet(0, 0, 1, 1),
+                              DirectX::XMVectorSet(0, 1, 0, 1))
+  };
+  auto const proj_mtx{
+    DirectX::XMMatrixPerspectiveFovLH(DirectX::XMConvertToRadians(60),
+                                      aspect_ratio, 100.0f, 0.1f)
+  };
   auto const view_proj_mtx{XMMatrixMultiply(view_mtx, proj_mtx)};
 
   if (FAILED(cmd_allocs_[frame_idx_]->Reset())) {
@@ -921,11 +952,13 @@ auto Renderer::DrawFrame(
 
   for (auto const& mesh : model.meshes) {
     DrawData draw_data{
-      mesh.pos_buf_srv_idx, mesh.uv_buf_srv_idx,
+      mesh.pos_buf_srv_idx, mesh.uv_buf_srv_idx ? *mesh.uv_buf_srv_idx : INVALID_RESOURCE_IDX,
       model.materials[mesh.mtl_idx].cbv_idx, 0
     };
 
-    DirectX::XMStoreFloat4x4(&draw_data.mvp, XMMatrixMultiply(XMLoadFloat4x4(&mesh.transform), view_proj_mtx));
+    DirectX::XMStoreFloat4x4(&draw_data.mvp,
+                             XMMatrixMultiply(XMLoadFloat4x4(&mesh.transform),
+                                              view_proj_mtx));
 
     std::memcpy(mesh.mapped_draw_data_buf, &draw_data, sizeof(draw_data));
 

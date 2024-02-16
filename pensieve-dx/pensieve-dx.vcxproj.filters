@@ -38,6 +38,7 @@
     <None Include="src\shaders\material.hlsli" />
     <None Include="src\shaders\globals.hlsli" />
     <None Include="packages.config" />
+    <None Include="src\shaders\common.hlsli" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\model_loading.hpp">

@@ -19,7 +19,7 @@ struct MaterialData {
 
 struct MeshData {
   std::vector<DirectX::XMFLOAT4> positions;
-  std::vector<DirectX::XMFLOAT2> uvs;
+  std::optional<std::vector<DirectX::XMFLOAT2>> uvs;
   std::vector<std::uint32_t> indices;
   DirectX::XMFLOAT4X4 transform;
   unsigned material_idx;

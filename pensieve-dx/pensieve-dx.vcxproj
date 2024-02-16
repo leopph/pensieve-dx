@@ -90,6 +90,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
+    <None Include="src\shaders\common.hlsli" />
     <None Include="src\shaders\draw_data.hlsli" />
     <None Include="src\shaders\globals.hlsli" />
     <None Include="src\shaders\material.hlsli" />

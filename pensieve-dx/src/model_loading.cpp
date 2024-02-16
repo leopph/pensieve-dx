@@ -19,8 +19,18 @@ namespace pensieve {
 auto LoadModel(
   std::filesystem::path const& path) -> std::expected<ModelData, std::string> {
   Assimp::Importer importer;
+  importer.SetPropertyInteger(
+    AI_CONFIG_PP_RVC_FLAGS,
+    aiComponent_NORMALS | aiComponent_TANGENTS_AND_BITANGENTS |
+    aiComponent_COLORS | aiComponent_BONEWEIGHTS | aiComponent_ANIMATIONS |
+    aiComponent_LIGHTS | aiComponent_CAMERAS);
+  importer.SetPropertyInteger(
+    AI_CONFIG_PP_SBP_REMOVE, aiPrimitiveType_POINT | aiPrimitiveType_LINE);
   auto const scene{
-    importer.ReadFile(path.string().c_str(), aiProcess_ConvertToLeftHanded)
+    importer.ReadFile(path.string().c_str(),
+                      aiProcess_JoinIdenticalVertices | aiProcess_Triangulate |
+                      aiProcess_RemoveComponent | aiProcess_SortByPType |
+                      aiProcess_GenUVCoords | aiProcess_ConvertToLeftHanded)
   };
 
   if (!scene) {
@@ -130,18 +140,25 @@ auto LoadModel(
                                };
                              });
 
-      std::vector<DirectX::XMFLOAT2> uvs;
-      uvs.reserve(mesh->mNumVertices);
-      std::ranges::transform(mesh->mTextureCoords[0],
-                             mesh->mTextureCoords[0] + mesh->mNumVertices,
-                             std::back_inserter(uvs), [](aiVector3D const& uv) {
-                               return DirectX::XMFLOAT2{uv.x, uv.y};
-                             });
+      std::optional<std::vector<DirectX::XMFLOAT2>> uvs;
+
+      if (mesh->HasTextureCoords(0)) {
+        uvs.emplace();
+        uvs->reserve(mesh->mNumVertices);
+        std::ranges::transform(mesh->mTextureCoords[0],
+                               mesh->mTextureCoords[0] + mesh->mNumVertices,
+                               std::back_inserter(*uvs),
+                               [](aiVector3D const& uv) {
+                                 return DirectX::XMFLOAT2{uv.x, uv.y};
+                               });
+      }
 
       std::vector<std::uint32_t> indices;
       indices.reserve(mesh->mNumFaces * 3);
       for (unsigned j{0}; j < mesh->mNumFaces; j++) {
-        std::ranges::copy_n(mesh->mFaces[j].mIndices, mesh->mFaces[j].mNumIndices, std::back_inserter(indices));
+        std::ranges::copy_n(mesh->mFaces[j].mIndices,
+                            mesh->mFaces[j].mNumIndices,
+                            std::back_inserter(indices));
       }
 
       ret.meshes.emplace_back(std::move(positions), std::move(uvs),

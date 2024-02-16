@@ -1,16 +1,19 @@
 #include "globals.hlsli"
 #include "vs_out.hlsli"
+#include "common.hlsli"
 
 VsOut main(const uint vertex_id : SV_VertexID) {
-  const StructuredBuffer<float4> positions = ResourceDescriptorHeap[g_draw_data.pos_buf_idx];
-  const StructuredBuffer<float2> uvs = ResourceDescriptorHeap[g_draw_data.uv_buf_idx];
-
-  const float4 position_os = positions[vertex_id];
-  const float2 uv = uvs[vertex_id];
-
   VsOut ret;
-  ret.position_cs = mul(position_os, g_draw_data.mvp);
-  ret.uv = uv;
+
+  const StructuredBuffer<float4> positions = ResourceDescriptorHeap[g_draw_data.pos_buf_idx];
+  ret.position_cs = mul(positions[vertex_id], g_draw_data.mvp);
+
+  if (g_draw_data.uv_buf_idx != INVALID_RESOURCE_IDX) {
+    const StructuredBuffer<float2> uvs = ResourceDescriptorHeap[g_draw_data.uv_buf_idx];
+    ret.uv = uvs[vertex_id];
+  } else {
+    ret.uv = float2(0, 0);
+  }
 
   return ret;
 }
