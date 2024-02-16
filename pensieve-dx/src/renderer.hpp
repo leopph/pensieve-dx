@@ -11,8 +11,8 @@
 #include <dxgi1_6.h>
 #include <wrl/client.h>
 
-#include "model_loading.hpp"
-#include "gpu_model.hpp"
+#include "scene_data.hpp"
+#include "gpu_scene.hpp"
 
 namespace pensieve {
 class Renderer {
@@ -20,11 +20,11 @@ public:
   [[nodiscard]] static auto Create(
     HWND hwnd) -> std::expected<Renderer, std::string>;
 
-  [[nodiscard]] auto CreateGpuModel(
-    ModelData const& model_data) -> std::expected<GpuModel, std::string>;
+  [[nodiscard]] auto CreateGpuScene(
+    SceneData const& scene_data) -> std::expected<GpuScene, std::string>;
 
   [[nodiscard]] auto DrawFrame(
-    GpuModel const& model) -> std::expected<void, std::string>;
+    GpuScene const& scene) -> std::expected<void, std::string>;
 
   [[nodiscard]] auto
   WaitForDeviceIdle() const -> std::expected<void, std::string>;

@@ -2,7 +2,7 @@
 #include <cstdlib>
 
 #include "error.hpp"
-#include "model_loading.hpp"
+#include "scene_loading.hpp"
 #include "renderer.hpp"
 #include "window.hpp"
 
@@ -26,24 +26,24 @@ auto main(int const argc, char* argv[]) -> int {
     return EXIT_FAILURE;
   }
 
-  auto const model_data{pensieve::LoadModel(argv[1])};
+  auto const scene_data{pensieve::LoadScene(argv[1])};
 
-  if (!model_data) {
-    pensieve::HandleError(model_data.error());
+  if (!scene_data) {
+    pensieve::HandleError(scene_data.error());
     return EXIT_FAILURE;
   }
 
-  auto const gpu_model{renderer->CreateGpuModel(*model_data)};
+  auto const gpu_scene{renderer->CreateGpuScene(*scene_data)};
 
-  if (!gpu_model) {
-    pensieve::HandleError(gpu_model.error());
+  if (!gpu_scene) {
+    pensieve::HandleError(gpu_scene.error());
     return EXIT_FAILURE;
   }
 
   while (!window->ShouldClose()) {
     window->PollEvents();
 
-    if (auto const exp{renderer->DrawFrame(*gpu_model)}; !exp) {
+    if (auto const exp{renderer->DrawFrame(*gpu_scene)}; !exp) {
       pensieve::HandleError(exp.error());
       return EXIT_FAILURE;
     }

@@ -390,22 +390,22 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
   };
 }
 
-auto Renderer::CreateGpuModel(
-  ModelData const& model_data) -> std::expected<GpuModel, std::string> {
+auto Renderer::CreateGpuScene(
+  SceneData const& scene_data) -> std::expected<GpuScene, std::string> {
   auto constexpr mtl_buffer_size{
     std::max(NextMultipleOf<UINT64>(256, sizeof(Material)),
              NextMultipleOf<UINT64>(256, sizeof(DrawData)))
   };
 
   auto const upload_buffer_size{
-    [&model_data] {
+    [&scene_data] {
       UINT64 ret{mtl_buffer_size};
 
-      for (auto const& [width, height, bytes] : model_data.textures) {
+      for (auto const& [width, height, bytes] : scene_data.textures) {
         ret = std::max<UINT64>(ret, 4 * width * height);
       }
 
-      for (auto const& mesh_data : model_data.meshes) {
+      for (auto const& mesh_data : scene_data.meshes) {
         ret = std::max<UINT64>(
           ret, mesh_data.positions.size() * sizeof(decltype(mesh_data.positions
           )::value_type));
@@ -467,14 +467,14 @@ auto Renderer::CreateGpuModel(
     D3D12_MEMORY_POOL_UNKNOWN, 0, 0
   };
 
-  GpuModel gpu_model;
-  gpu_model.textures.reserve(model_data.textures.size());
-  gpu_model.materials.reserve(model_data.materials.size());
-  gpu_model.meshes.reserve(model_data.meshes.size());
+  GpuScene gpu_scene;
+  gpu_scene.textures.reserve(scene_data.textures.size());
+  gpu_scene.materials.reserve(scene_data.materials.size());
+  gpu_scene.meshes.reserve(scene_data.meshes.size());
 
   for (auto const& [idx, img] : std::ranges::views::enumerate(
-         model_data.textures)) {
-    auto& gpu_tex{gpu_model.textures.emplace_back()};
+         scene_data.textures)) {
+    auto& gpu_tex{gpu_scene.textures.emplace_back()};
     auto const tex_desc{
       CD3DX12_RESOURCE_DESC1::Tex2D(DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, img.width,
                                     img.height)
@@ -556,26 +556,24 @@ auto Renderer::CreateGpuModel(
   }
 
   for (auto const& [idx, mtl_data] : std::ranges::views::enumerate(
-         model_data.materials)) {
+         scene_data.materials)) {
     Material const mtl{
-      mtl_data.base_color,
-      mtl_data.metallic,
-      mtl_data.roughness,
-      mtl_data.base_texture_idx
-        ? gpu_model.textures[*mtl_data.base_texture_idx].srv_idx
+      mtl_data.base_color, mtl_data.metallic, mtl_data.roughness,
+      mtl_data.base_color_map_idx
+        ? gpu_scene.textures[*mtl_data.base_color_map_idx].srv_idx
         : INVALID_RESOURCE_IDX,
-      mtl_data.metallic_texture_idx
-      ? gpu_model.textures[*mtl_data.metallic_texture_idx].srv_idx
-      : INVALID_RESOURCE_IDX,
-      mtl_data.roughness_texture_idx
-      ? gpu_model.textures[*mtl_data.roughness_texture_idx].srv_idx
-      : INVALID_RESOURCE_IDX
+      mtl_data.metallic_map_idx
+        ? gpu_scene.textures[*mtl_data.metallic_map_idx].srv_idx
+        : INVALID_RESOURCE_IDX,
+      mtl_data.roughness_map_idx
+        ? gpu_scene.textures[*mtl_data.roughness_map_idx].srv_idx
+        : INVALID_RESOURCE_IDX
     };
     std::memcpy(upload_buffer_ptr, &mtl, sizeof(mtl));
 
     auto const buf_desc{CD3DX12_RESOURCE_DESC1::Buffer(mtl_buffer_size)};
 
-    auto& gpu_mtl{gpu_model.materials.emplace_back()};
+    auto& gpu_mtl{gpu_scene.materials.emplace_back()};
     if (FAILED(
       device_->CreateCommittedResource3(&default_heap_props,
         D3D12_HEAP_FLAG_NONE, &buf_desc, D3D12_BARRIER_LAYOUT_UNDEFINED, nullptr
@@ -630,8 +628,8 @@ auto Renderer::CreateGpuModel(
   }
 
   for (auto const& [idx, mesh_data] : std::ranges::views::enumerate(
-         model_data.meshes)) {
-    auto& gpu_mesh{gpu_model.meshes.emplace_back()};
+         scene_data.meshes)) {
+    auto& gpu_mesh{gpu_scene.meshes.emplace_back()};
 
     auto const position_buffer_size{
       mesh_data.positions.size() * sizeof(decltype(mesh_data.positions
@@ -839,43 +837,54 @@ auto Renderer::CreateGpuModel(
       return std::unexpected{"Failed to wait for upload fence."};
     }
 
-    auto const draw_data_buf_desc{
-      CD3DX12_RESOURCE_DESC1::Buffer(
-        NextMultipleOf<UINT64>(256, sizeof(DrawData)))
-    };
-
-    if (FAILED(
-      device_->CreateCommittedResource3(&upload_heap_props, D3D12_HEAP_FLAG_NONE
-        , &draw_data_buf_desc, D3D12_BARRIER_LAYOUT_UNDEFINED, nullptr, nullptr,
-        0, nullptr, IID_PPV_ARGS(&gpu_mesh.draw_data_buf)))) {
-      return std::unexpected{
-        std::format("Failed to create draw data buffer {}.", idx)
-      };
-    }
-
-    if (FAILED(
-      gpu_mesh.draw_data_buf->Map(0, nullptr, &gpu_mesh.mapped_draw_data_buf
-      ))) {
-      return std::unexpected{
-        std::format("Failed to map draw data buffer {}.", idx)
-      };
-    }
-
     gpu_mesh.ibv.Format = DXGI_FORMAT_R32_UINT;
     gpu_mesh.ibv.BufferLocation = gpu_mesh.idx_buf->GetGPUVirtualAddress();
     gpu_mesh.ibv.SizeInBytes = static_cast<UINT>(idx_buffer_size);
 
     gpu_mesh.mtl_idx = mesh_data.material_idx;
     gpu_mesh.index_count = static_cast<UINT>(mesh_data.indices.size());
-
-    gpu_mesh.transform = mesh_data.transform;
   }
 
-  return gpu_model;
+  for (auto const& [idx, node_data] : std::ranges::views::enumerate(
+         scene_data.nodes)) {
+    auto& gpu_node{
+      gpu_scene.nodes.emplace_back(node_data.mesh_indices, node_data.transform)
+    };
+
+    auto const draw_data_buf_desc{
+      CD3DX12_RESOURCE_DESC1::Buffer(
+        NextMultipleOf<UINT64>(256, sizeof(DrawData)))
+    };
+
+    gpu_node.draw_data_bufs.resize(gpu_node.mesh_indices.size());
+    gpu_node.mapped_draw_data_bufs.resize(gpu_node.mesh_indices.size());
+
+    for (std::size_t i{0}; i < gpu_node.mesh_indices.size(); i++) {
+      if (FAILED(
+        device_->CreateCommittedResource3(&upload_heap_props,
+          D3D12_HEAP_FLAG_NONE , &draw_data_buf_desc,
+          D3D12_BARRIER_LAYOUT_UNDEFINED, nullptr, nullptr, 0, nullptr,
+          IID_PPV_ARGS(&gpu_node.draw_data_bufs[i])))) {
+        return std::unexpected{
+          std::format("Failed to create node draw data buffer {}.", idx)
+        };
+      }
+
+      if (FAILED(
+        gpu_node.draw_data_bufs[i]->Map(0, nullptr, &gpu_node.
+          mapped_draw_data_bufs[i] ))) {
+        return std::unexpected{
+          std::format("Failed to map node draw data buffer {}.", idx)
+        };
+      }
+    }
+  }
+
+  return gpu_scene;
 }
 
 auto Renderer::DrawFrame(
-  GpuModel const& model) -> std::expected<void, std::string> {
+  GpuScene const& scene) -> std::expected<void, std::string> {
   auto const back_buf_idx{swap_chain_->GetCurrentBackBufferIndex()};
   auto const back_buf_desc{swap_chain_buffers_[back_buf_idx]->GetDesc1()};
   auto const aspect_ratio{
@@ -892,7 +901,10 @@ auto Renderer::DrawFrame(
     DirectX::XMMatrixPerspectiveFovLH(DirectX::XMConvertToRadians(60),
                                       aspect_ratio, 100.0f, 0.1f)
   };
-  auto const view_proj_mtx{XMMatrixMultiply(view_mtx, proj_mtx)};
+  auto const view_proj_mtx{
+    XMMatrixMultiply(DirectX::XMMatrixScaling(0.01f, 0.01f, 0.01f),
+                     XMMatrixMultiply(view_mtx, proj_mtx))
+  };
 
   if (FAILED(cmd_allocs_[frame_idx_]->Reset())) {
     return std::unexpected{
@@ -958,22 +970,28 @@ auto Renderer::DrawFrame(
   cmd_lists_[frame_idx_]->ClearDepthStencilView(
     dsv_cpu_handle_, D3D12_CLEAR_FLAG_DEPTH, 0.0f, 0, 0, nullptr);
 
-  for (auto const& mesh : model.meshes) {
-    DrawData draw_data{
-      mesh.pos_buf_srv_idx, mesh.uv_buf_srv_idx ? *mesh.uv_buf_srv_idx : INVALID_RESOURCE_IDX,
-      model.materials[mesh.mtl_idx].cbv_idx, 0
-    };
+  for (auto const& node : scene.nodes) {
+    for (std::size_t i{0}; i < node.mesh_indices.size(); i++) {
+      auto const& mesh{scene.meshes[node.mesh_indices[i]]};
 
-    DirectX::XMStoreFloat4x4(&draw_data.mvp,
-                             XMMatrixMultiply(XMLoadFloat4x4(&mesh.transform),
-                                              view_proj_mtx));
+      DrawData draw_data{
+        mesh.pos_buf_srv_idx,
+        mesh.uv_buf_srv_idx ? *mesh.uv_buf_srv_idx : INVALID_RESOURCE_IDX,
+        scene.materials[mesh.mtl_idx].cbv_idx, 0
+      };
 
-    std::memcpy(mesh.mapped_draw_data_buf, &draw_data, sizeof(draw_data));
+      XMStoreFloat4x4(&draw_data.mvp,
+                      XMMatrixMultiply(XMLoadFloat4x4(&node.transform),
+                                       view_proj_mtx));
 
-    cmd_lists_[frame_idx_]->SetGraphicsRootConstantBufferView(
-      0, mesh.draw_data_buf->GetGPUVirtualAddress());
-    cmd_lists_[frame_idx_]->IASetIndexBuffer(&mesh.ibv);
-    cmd_lists_[frame_idx_]->DrawIndexedInstanced(mesh.index_count, 1, 0, 0, 0);
+      std::memcpy(node.mapped_draw_data_bufs[i], &draw_data, sizeof(draw_data));
+
+      cmd_lists_[frame_idx_]->SetGraphicsRootConstantBufferView(
+        0, node.draw_data_bufs[i]->GetGPUVirtualAddress());
+      cmd_lists_[frame_idx_]->IASetIndexBuffer(&mesh.ibv);
+      cmd_lists_[frame_idx_]->
+        DrawIndexedInstanced(mesh.index_count, 1, 0, 0, 0);
+    }
   }
 
   D3D12_TEXTURE_BARRIER const present_barrier{

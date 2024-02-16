@@ -18,7 +18,7 @@
     <ClCompile Include="src\main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\model_loading.cpp">
+    <ClCompile Include="src\scene_loading.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\window.cpp">
@@ -41,10 +41,7 @@
     <None Include="src\shaders\common.hlsli" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="src\model_loading.hpp">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="src\image_data.hpp">
+    <ClInclude Include="src\scene_loading.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\renderer.hpp">
@@ -53,7 +50,7 @@
     <ClInclude Include="src\window.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\gpu_model.hpp">
+    <ClInclude Include="src\gpu_scene.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\shader_interop.hpp">
@@ -63,6 +60,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\error.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\scene_data.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
