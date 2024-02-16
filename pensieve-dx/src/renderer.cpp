@@ -549,7 +549,7 @@ auto Renderer::CreateGpuModel(
   for (auto const& [idx, mtl_data] : std::ranges::views::enumerate(
          model_data.materials)) {
     Material const mtl{
-      mtl_data.base_color, gpu_model.textures[mtl_data.base_texture_idx].srv_idx
+      mtl_data.base_color, mtl_data.base_texture_idx ? gpu_model.textures[*mtl_data.base_texture_idx].srv_idx : INVALID_TEXTURE_IDX
     };
     std::memcpy(upload_buffer_ptr, &mtl, sizeof(mtl));
 

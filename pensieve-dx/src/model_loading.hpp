@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <expected>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -13,7 +14,7 @@
 namespace pensieve {
 struct MaterialData {
   DirectX::XMFLOAT3 base_color;
-  unsigned base_texture_idx;
+  std::optional<unsigned> base_texture_idx;
 };
 
 struct MeshData {
