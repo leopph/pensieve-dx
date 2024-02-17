@@ -901,10 +901,7 @@ auto Renderer::DrawFrame(
     DirectX::XMMatrixPerspectiveFovLH(DirectX::XMConvertToRadians(60),
                                       aspect_ratio, 100.0f, 0.1f)
   };
-  auto const view_proj_mtx{
-    XMMatrixMultiply(DirectX::XMMatrixScaling(0.01f, 0.01f, 0.01f),
-                     XMMatrixMultiply(view_mtx, proj_mtx))
-  };
+  auto const view_proj_mtx{XMMatrixMultiply(view_mtx, proj_mtx)};
 
   if (FAILED(cmd_allocs_[frame_idx_]->Reset())) {
     return std::unexpected{

@@ -31,7 +31,8 @@ auto LoadScene(
                       aiProcess_JoinIdenticalVertices | aiProcess_Triangulate |
                       aiProcess_RemoveComponent | aiProcess_SortByPType |
                       aiProcess_GenUVCoords | aiProcess_OptimizeMeshes |
-                      aiProcess_OptimizeGraph | aiProcess_ConvertToLeftHanded)
+                      aiProcess_OptimizeGraph | aiProcess_GlobalScale |
+                      aiProcess_ConvertToLeftHanded)
   };
 
   if (!scene) {
