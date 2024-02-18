@@ -5,9 +5,9 @@ struct Material {
   float3 base_color;
   float metallic;
   float roughness;
-  uint base_texture_idx;
-  uint metallic_texture_idx;
-  uint roughness_texture_idx;
+  uint base_color_map_idx;
+  uint metallic_map_idx;
+  uint roughness_map_idx;
 };
 
 #endif

@@ -707,6 +707,82 @@ auto Renderer::CreateGpuScene(
                                         res_desc_inc
                                       });
 
+    auto const normal_buffer_size{
+      mesh_data.normals.size() * sizeof(decltype(mesh_data.normals
+      )::value_type)
+    };
+    std::memcpy(upload_buffer_ptr, mesh_data.normals.data(),
+                normal_buffer_size);
+
+    auto const normal_buf_desc{
+      CD3DX12_RESOURCE_DESC1::Buffer(normal_buffer_size)
+    };
+
+    if FAILED(
+      device_->CreateCommittedResource3(&default_heap_props,
+        D3D12_HEAP_FLAG_NONE, &normal_buf_desc, D3D12_BARRIER_LAYOUT_UNDEFINED,
+        nullptr, nullptr, 0, nullptr, IID_PPV_ARGS(&gpu_mesh.norm_buf))) {
+      return std::unexpected{
+        std::format("Failed to create GPU mesh normals {}.", idx)
+      };
+    }
+
+    if (FAILED(cmd_allocs_[frame_idx_]->Reset())) {
+      return std::unexpected{
+        "Failed to reset command allocator for mesh normal copy."
+      };
+    }
+
+    if (FAILED(
+      cmd_lists_[frame_idx_]->Reset(cmd_allocs_[frame_idx_].Get(), nullptr))) {
+      return std::unexpected{
+        "Failed to reset command list for mesh normal copy."
+      };
+    }
+
+    cmd_lists_[frame_idx_]->CopyBufferRegion(gpu_mesh.norm_buf.Get(), 0,
+                                             upload_buffer.Get(), 0,
+                                             normal_buffer_size);
+
+    if (FAILED(cmd_lists_[frame_idx_]->Close())) {
+      return std::unexpected{
+        "Failed to close command list for mesh normal copy."
+      };
+    }
+
+    direct_queue_->ExecuteCommandLists(
+      1, CommandListCast(cmd_lists_[frame_idx_].GetAddressOf()));
+
+    ++upload_fence_val;
+    if (FAILED(direct_queue_->Signal(upload_fence.Get(), upload_fence_val))) {
+      return std::unexpected{"Failed to signal upload fence."};
+    }
+
+    if (FAILED(upload_fence->SetEventOnCompletion(upload_fence_val, nullptr))) {
+      return std::unexpected{"Failed to wait for upload fence."};
+    }
+
+    gpu_mesh.norm_buf_srv_idx = AllocateResourceDescriptorIndex();
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC const norm_srv_desc{
+      .Format = DXGI_FORMAT_UNKNOWN,
+      .ViewDimension = D3D12_SRV_DIMENSION_BUFFER,
+      .Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+      .Buffer = {
+        0, static_cast<UINT>(mesh_data.normals.size()),
+        sizeof(decltype(mesh_data.normals)::value_type),
+        D3D12_BUFFER_SRV_FLAG_NONE
+      }
+    };
+
+    device_->CreateShaderResourceView(gpu_mesh.norm_buf.Get(), &norm_srv_desc,
+                                      CD3DX12_CPU_DESCRIPTOR_HANDLE{
+                                        res_desc_heap_cpu_start,
+                                        static_cast<INT>(gpu_mesh.
+                                          norm_buf_srv_idx),
+                                        res_desc_inc
+                                      });
+
     if (mesh_data.uvs) {
       gpu_mesh.uv_buf.emplace();
 
@@ -972,9 +1048,9 @@ auto Renderer::DrawFrame(
       auto const& mesh{scene.meshes[node.mesh_indices[i]]};
 
       DrawData draw_data{
-        mesh.pos_buf_srv_idx,
+        mesh.pos_buf_srv_idx, mesh.norm_buf_srv_idx,
         mesh.uv_buf_srv_idx ? *mesh.uv_buf_srv_idx : INVALID_RESOURCE_IDX,
-        scene.materials[mesh.mtl_idx].cbv_idx, 0
+        scene.materials[mesh.mtl_idx].cbv_idx
       };
 
       XMStoreFloat4x4(&draw_data.mvp,

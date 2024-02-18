@@ -8,6 +8,9 @@ VsOut main(const uint vertex_id : SV_VertexID) {
   const StructuredBuffer<float4> positions = ResourceDescriptorHeap[g_draw_data.pos_buf_idx];
   ret.position_cs = mul(positions[vertex_id], g_draw_data.mvp);
 
+  const StructuredBuffer<float4> normals = ResourceDescriptorHeap[g_draw_data.norm_buf_idx];
+  ret.normal = normalize(normals[vertex_id].xyz);
+
   if (g_draw_data.uv_buf_idx != INVALID_RESOURCE_IDX) {
     const StructuredBuffer<float2> uvs = ResourceDescriptorHeap[g_draw_data.uv_buf_idx];
     ret.uv = uvs[vertex_id];
