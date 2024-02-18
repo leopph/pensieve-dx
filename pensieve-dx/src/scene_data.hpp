@@ -25,6 +25,7 @@ struct MaterialData {
 
 struct MeshData {
   std::vector<DirectX::XMFLOAT4> positions;
+  std::vector<DirectX::XMFLOAT4> normals;
   std::vector<std::uint32_t> indices;
   std::optional<std::vector<DirectX::XMFLOAT2>> uvs;
   unsigned material_idx;

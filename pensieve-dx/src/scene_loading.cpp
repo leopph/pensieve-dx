@@ -29,7 +29,7 @@ auto LoadScene(
   auto const scene{
     importer.ReadFile(path.string().c_str(),
                       aiProcess_JoinIdenticalVertices | aiProcess_Triangulate |
-                      aiProcess_RemoveComponent | aiProcess_SortByPType |
+                      aiProcess_RemoveComponent | aiProcess_GenNormals | aiProcess_SortByPType |
                       aiProcess_GenUVCoords | aiProcess_OptimizeMeshes |
                       aiProcess_OptimizeGraph | aiProcess_GlobalScale |
                       aiProcess_ConvertToLeftHanded)
@@ -144,6 +144,10 @@ auto LoadScene(
   for (unsigned i{0}; i < scene->mNumMeshes; i++) {
     auto const mesh{scene->mMeshes[i]};
 
+    if (!mesh->HasPositions()) {
+      return std::unexpected{std::format("Mesh {} contains no vertex positions.", mesh->mName.C_Str())};
+    }
+
     std::vector<DirectX::XMFLOAT4> positions;
     positions.reserve(mesh->mNumVertices);
     std::ranges::transform(mesh->mVertices,
@@ -168,6 +172,25 @@ auto LoadScene(
                              });
     }
 
+    if (!mesh->HasNormals()) {
+      return std::unexpected{std::format("Mesh {} contains no vertex normals.", mesh->mName.C_Str())};
+    }
+
+    std::vector<DirectX::XMFLOAT4> normals;
+    normals.reserve(mesh->mNumVertices);
+    std::ranges::transform(mesh->mNormals,
+                           mesh->mNormals + mesh->mNumVertices,
+                           std::back_inserter(normals),
+                           [](aiVector3D const& normal) {
+                             return DirectX::XMFLOAT4{
+                               normal.x, normal.y, normal.z, 0.0f
+                             };
+                           });
+
+    if (!mesh->HasFaces()) {
+      return std::unexpected{std::format("Mesh {} contains no vertex indices.", mesh->mName.C_Str())};
+    }
+
     std::vector<std::uint32_t> indices;
     indices.reserve(mesh->mNumFaces * 3);
     for (unsigned j{0}; j < mesh->mNumFaces; j++) {
@@ -175,7 +198,7 @@ auto LoadScene(
                           std::back_inserter(indices));
     }
 
-    scene_data.meshes.emplace_back(std::move(positions), std::move(indices),
+    scene_data.meshes.emplace_back(std::move(positions), std::move(normals), std::move(indices),
                                    std::move(uvs), mesh->mMaterialIndex);
   }
 
