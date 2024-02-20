@@ -559,6 +559,7 @@ auto Renderer::CreateGpuScene(
          scene_data.materials)) {
     Material const mtl{
       mtl_data.base_color, mtl_data.metallic, mtl_data.roughness,
+      mtl_data.emission_color,
       mtl_data.base_color_map_idx
         ? gpu_scene.textures[*mtl_data.base_color_map_idx].srv_idx
         : INVALID_RESOURCE_IDX,
@@ -567,6 +568,9 @@ auto Renderer::CreateGpuScene(
         : INVALID_RESOURCE_IDX,
       mtl_data.roughness_map_idx
         ? gpu_scene.textures[*mtl_data.roughness_map_idx].srv_idx
+        : INVALID_RESOURCE_IDX,
+      mtl_data.emission_map_idx
+        ? gpu_scene.textures[*mtl_data.emission_map_idx].srv_idx
         : INVALID_RESOURCE_IDX
     };
     std::memcpy(upload_buffer_ptr, &mtl, sizeof(mtl));

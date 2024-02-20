@@ -18,9 +18,11 @@ struct MaterialData {
   DirectX::XMFLOAT3 base_color;
   float metallic;
   float roughness;
+  DirectX::XMFLOAT3 emission_color;
   std::optional<unsigned> base_color_map_idx;
   std::optional<unsigned> metallic_map_idx;
   std::optional<unsigned> roughness_map_idx;
+  std::optional<unsigned> emission_map_idx;
 };
 
 struct MeshData {

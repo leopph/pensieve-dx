@@ -30,6 +30,7 @@ float4 main(const VsOut vs_out) : SV_Target {
   float3 base_color = material.base_color;
   float metallic = material.metallic;
   float roughness = material.roughness;
+  float3 emission = material.emission_color;
 
   if (material.base_color_map_idx != INVALID_RESOURCE_IDX) {
     const Texture2D base_color_map = ResourceDescriptorHeap[material.base_color_map_idx];
@@ -44,6 +45,11 @@ float4 main(const VsOut vs_out) : SV_Target {
   if (material.roughness_map_idx != INVALID_RESOURCE_IDX) {
     const Texture2D roughness_map = ResourceDescriptorHeap[material.roughness_map_idx];
     roughness *= roughness_map.Sample(g_sampler, vs_out.uv).r;
+  }
+
+  if (material.emission_map_idx != INVALID_RESOURCE_IDX) {
+    const Texture2D emission_map = ResourceDescriptorHeap[material.emission_map_idx];
+    emission *= emission_map.Sample(g_sampler, vs_out.uv).rgb;
   }
 
   const float3 normal = normalize(vs_out.normal);
@@ -65,7 +71,7 @@ float4 main(const VsOut vs_out) : SV_Target {
   const float3 specular_factor = f;
   const float3 diffuse_factor = (1 - specular_factor) * (1 - metallic);
 
-  float3 out_color = diffuse_factor * diffuse + specular_factor * specular;
+  float3 out_color = emission + diffuse_factor * diffuse + specular_factor * specular;
   out_color /= out_color + 1;
   out_color = pow(out_color, 1 / 2.2);
 

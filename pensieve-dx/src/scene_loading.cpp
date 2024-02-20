@@ -29,10 +29,10 @@ auto LoadScene(
   auto const scene{
     importer.ReadFile(path.string().c_str(),
                       aiProcess_JoinIdenticalVertices | aiProcess_Triangulate |
-                      aiProcess_RemoveComponent | aiProcess_GenNormals | aiProcess_SortByPType |
-                      aiProcess_GenUVCoords | aiProcess_OptimizeMeshes |
-                      aiProcess_OptimizeGraph | aiProcess_GlobalScale |
-                      aiProcess_ConvertToLeftHanded)
+                      aiProcess_RemoveComponent | aiProcess_GenNormals |
+                      aiProcess_SortByPType | aiProcess_GenUVCoords |
+                      aiProcess_OptimizeMeshes | aiProcess_OptimizeGraph |
+                      aiProcess_GlobalScale | aiProcess_ConvertToLeftHanded)
   };
 
   if (!scene) {
@@ -47,7 +47,8 @@ auto LoadScene(
   for (unsigned i{0}; i < scene->mNumMaterials; i++) {
     auto const mtl{scene->mMaterials[i]};
     auto& mtl_data = scene_data.materials.emplace_back(
-      DirectX::XMFLOAT3{1.0f, 1.0f, 1.0f}, 0.0f, 0.0f);
+      DirectX::XMFLOAT3{1.0f, 1.0f, 1.0f}, 0.0f, 0.0f,
+      DirectX::XMFLOAT3{0.0f, 0.0f, 0.0f});
 
     if (aiColor3D base_color; mtl->Get(AI_MATKEY_BASE_COLOR, base_color) ==
       aiReturn_SUCCESS) {
@@ -62,6 +63,11 @@ auto LoadScene(
     if (float roughness; mtl->Get(AI_MATKEY_ROUGHNESS_FACTOR, roughness) ==
       aiReturn_SUCCESS) {
       mtl_data.roughness = roughness;
+    }
+
+    if (aiColor3D emission; mtl->Get(AI_MATKEY_COLOR_EMISSIVE, emission) ==
+      aiReturn_SUCCESS) {
+      mtl_data.emission_color = {emission.r, emission.g, emission.b};
     }
 
     if (aiString tex_path; mtl->GetTexture(
@@ -81,6 +87,13 @@ auto LoadScene(
     if (aiString tex_path; mtl->GetTexture(
       AI_MATKEY_ROUGHNESS_TEXTURE, &tex_path) == aiReturn_SUCCESS) {
       mtl_data.roughness_map_idx = tex_paths_to_idx.try_emplace(
+        tex_path.C_Str(),
+        static_cast<unsigned>(tex_paths_to_idx.size())).first->second;
+    }
+
+    if (aiString tex_path; mtl->GetTexture(aiTextureType_EMISSIVE, 0, &tex_path)
+      == aiReturn_SUCCESS) {
+      mtl_data.emission_map_idx = tex_paths_to_idx.try_emplace(
         tex_path.C_Str(),
         static_cast<unsigned>(tex_paths_to_idx.size())).first->second;
     }
@@ -145,7 +158,10 @@ auto LoadScene(
     auto const mesh{scene->mMeshes[i]};
 
     if (!mesh->HasPositions()) {
-      return std::unexpected{std::format("Mesh {} contains no vertex positions.", mesh->mName.C_Str())};
+      return std::unexpected{
+        std::format("Mesh {} contains no vertex positions.",
+                    mesh->mName.C_Str())
+      };
     }
 
     std::vector<DirectX::XMFLOAT4> positions;
@@ -173,13 +189,14 @@ auto LoadScene(
     }
 
     if (!mesh->HasNormals()) {
-      return std::unexpected{std::format("Mesh {} contains no vertex normals.", mesh->mName.C_Str())};
+      return std::unexpected{
+        std::format("Mesh {} contains no vertex normals.", mesh->mName.C_Str())
+      };
     }
 
     std::vector<DirectX::XMFLOAT4> normals;
     normals.reserve(mesh->mNumVertices);
-    std::ranges::transform(mesh->mNormals,
-                           mesh->mNormals + mesh->mNumVertices,
+    std::ranges::transform(mesh->mNormals, mesh->mNormals + mesh->mNumVertices,
                            std::back_inserter(normals),
                            [](aiVector3D const& normal) {
                              return DirectX::XMFLOAT4{
@@ -188,7 +205,9 @@ auto LoadScene(
                            });
 
     if (!mesh->HasFaces()) {
-      return std::unexpected{std::format("Mesh {} contains no vertex indices.", mesh->mName.C_Str())};
+      return std::unexpected{
+        std::format("Mesh {} contains no vertex indices.", mesh->mName.C_Str())
+      };
     }
 
     std::vector<std::uint32_t> indices;
@@ -198,8 +217,9 @@ auto LoadScene(
                           std::back_inserter(indices));
     }
 
-    scene_data.meshes.emplace_back(std::move(positions), std::move(normals), std::move(indices),
-                                   std::move(uvs), mesh->mMaterialIndex);
+    scene_data.meshes.emplace_back(std::move(positions), std::move(normals),
+                                   std::move(indices), std::move(uvs),
+                                   mesh->mMaterialIndex);
   }
 
   std::stack<std::pair<aiNode const*, aiMatrix4x4>> nodes;
