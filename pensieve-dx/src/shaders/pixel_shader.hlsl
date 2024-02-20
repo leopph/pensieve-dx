@@ -3,23 +3,23 @@
 #include "material.hlsli"
 #include "common.hlsli"
 
-static const float3 kLightDir = normalize(float3(1, -0.5, 1));
+static const float3 kLightDir = normalize(float3(0, 0, 1));
 static const float kPi = 3.14159265;
 static const float3 kCameraPos = float3(0, 0, -5);
 
-float Distribution(const float3 normal, const float3 halfway, const float roughness) {
-  const float alpha2 = pow(pow(roughness, 2), 2);
-  return alpha2 / (kPi * pow(pow(dot(normal, halfway), 2) * (alpha2 - 1) + 1, 2));
+float TrowbridgeReitzGgxNdf(const float3 normal, const float3 halfway, const float roughness) {
+  const float roughness2 = pow(pow(roughness, 2), 2);
+  return roughness2 / (kPi * pow(pow(dot(normal, halfway), 2) * (roughness2 - 1) + 1, 2));
 }
 
-float Geometry(const float roughness, const float3 light_dir, const float3 view_dir, const float3 normal, const float3 halfway) {
+float SmithGeometry(const float3 normal, const float3 view_dir, const float3 light_dir, const float roughness) {
   const float k = pow(roughness + 1, 2) / 8;
   const float n_dot_v = dot(normal, view_dir);
   const float n_dot_l = dot(normal, light_dir);
   return n_dot_v / (n_dot_v * (1 - k) + k) * n_dot_l / (n_dot_l * (1 - k) + k);
 }
 
-float3 Fresnel(const float3 f0, const float3 view_dir, const float3 halfway) {
+float3 SchlickFresnel(const float3 halfway, const float3 view_dir, const float3 f0) {
   const float v_dot_h = dot(view_dir, halfway);
   return f0 + (1 - f0) * pow(2, (-5.55473 * v_dot_h - 6.98316) - v_dot_h);
 }
@@ -47,13 +47,27 @@ float4 main(const VsOut vs_out) : SV_Target {
   }
 
   const float3 normal = normalize(vs_out.normal);
-  const float3 view_dir = normalize(kCameraPos);
-  const float3 halfway = normalize(view_dir + kLightDir);
+  const float3 dir_to_light = normalize(-kLightDir);
+  const float3 dir_to_cam = normalize(kCameraPos - vs_out.position_ws);
+  const float3 halfway = normalize(dir_to_cam + dir_to_light);
   const float3 f0 = lerp((float3) 0.04, base_color, metallic);
 
-  float ndf = Distribution(normal, halfway, roughness);
-  float geom = Geometry(roughness, kLightDir, view_dir, normal, halfway);
-  float fresnel = Fresnel(f0, view_dir, halfway);
+  const float n = TrowbridgeReitzGgxNdf(normal, halfway, roughness);
+  const float g = SmithGeometry(normal, dir_to_cam, dir_to_light, roughness);
+  const float3 f = SchlickFresnel(halfway, dir_to_cam, f0);
 
-  return float4(base_color, 1);
+  const float n_dot_l = dot(normal, dir_to_light);
+  const float n_dot_v = dot(normal, dir_to_cam);
+
+  const float3 diffuse = base_color / kPi;
+  const float3 specular = n * g * f / (4 * n_dot_l * n_dot_v);
+
+  const float3 specular_factor = f;
+  const float3 diffuse_factor = (1 - specular_factor) * (1 - metallic);
+
+  float3 out_color = diffuse_factor * diffuse + specular_factor * specular;
+  out_color /= out_color + 1;
+  out_color = pow(out_color, 1 / 2.2);
+
+  return float4(out_color, 1);
 }

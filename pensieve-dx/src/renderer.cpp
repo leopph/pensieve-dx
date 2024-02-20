@@ -1050,12 +1050,10 @@ auto Renderer::DrawFrame(
       DrawData draw_data{
         mesh.pos_buf_srv_idx, mesh.norm_buf_srv_idx,
         mesh.uv_buf_srv_idx ? *mesh.uv_buf_srv_idx : INVALID_RESOURCE_IDX,
-        scene.materials[mesh.mtl_idx].cbv_idx
+        scene.materials[mesh.mtl_idx].cbv_idx, node.transform
       };
 
-      XMStoreFloat4x4(&draw_data.mvp,
-                      XMMatrixMultiply(XMLoadFloat4x4(&node.transform),
-                                       view_proj_mtx));
+      XMStoreFloat4x4(&draw_data.view_proj_mtx, view_proj_mtx);
 
       std::memcpy(node.mapped_draw_data_bufs[i], &draw_data, sizeof(draw_data));
 
