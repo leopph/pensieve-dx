@@ -460,7 +460,7 @@ auto Renderer::CreateGpuScene(
          scene_data.textures)) {
     auto& gpu_tex{gpu_scene.textures.emplace_back()};
     auto const tex_desc{
-      CD3DX12_RESOURCE_DESC1::Tex2D(DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, img.width,
+      CD3DX12_RESOURCE_DESC1::Tex2D(DXGI_FORMAT_R8G8B8A8_UNORM, img.width,
                                     img.height)
     };
     if (FAILED(

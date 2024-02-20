@@ -6,6 +6,7 @@
 static const float3 kLightDir = normalize(float3(0, 0, 1));
 static const float kPi = 3.14159265;
 static const float3 kCameraPos = float3(0, 0, -5);
+static const float kGamma = 2.2;
 
 float TrowbridgeReitzGgxNdf(const float3 normal, const float3 halfway, const float roughness) {
   const float roughness2 = pow(pow(roughness, 2), 2);
@@ -34,7 +35,7 @@ float4 main(const VsOut vs_out) : SV_Target {
 
   if (material.base_color_map_idx != INVALID_RESOURCE_IDX) {
     const Texture2D base_color_map = ResourceDescriptorHeap[material.base_color_map_idx];
-    base_color *= base_color_map.Sample(g_sampler, vs_out.uv).rgb;
+    base_color *= pow(base_color_map.Sample(g_sampler, vs_out.uv).rgb, kGamma);
   }
 
   if (material.metallic_map_idx != INVALID_RESOURCE_IDX) {
@@ -73,7 +74,7 @@ float4 main(const VsOut vs_out) : SV_Target {
 
   float3 out_color = emission + diffuse_factor * diffuse + specular_factor * specular;
   out_color /= out_color + 1;
-  out_color = pow(out_color, 1 / 2.2);
+  out_color = pow(out_color, 1 / kGamma);
 
   return float4(out_color, 1);
 }
