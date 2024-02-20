@@ -50,7 +50,16 @@ float4 main(const VsOut vs_out) : SV_Target {
     emission *= emission_map.Sample(g_sampler, vs_out.uv).rgb;
   }
 
-  const float3 normal = normalize(vs_out.normal);
+  float3 normal;
+
+  if (material.normal_map_idx != INVALID_RESOURCE_IDX) {
+    const Texture2D normal_map = ResourceDescriptorHeap[material.normal_map_idx];
+    normal = normal_map.Sample(g_sampler, vs_out.uv).rgb * 2 - 1;
+    normal = normalize(mul(normalize(normal), vs_out.tbn_mtx_ws));
+  } else {
+    normal = normalize(vs_out.normal_ws);
+  }
+
   const float3 f0 = lerp(0.04, base_color, metallic);
 
   const float3 dir_to_light = normalize(-kLightDir);

@@ -23,11 +23,13 @@ struct MaterialData {
   std::optional<unsigned> metallic_map_idx;
   std::optional<unsigned> roughness_map_idx;
   std::optional<unsigned> emission_map_idx;
+  std::optional<unsigned> normal_map_idx;
 };
 
 struct MeshData {
   std::vector<DirectX::XMFLOAT4> positions;
   std::vector<DirectX::XMFLOAT4> normals;
+  std::vector<DirectX::XMFLOAT4> tangents;
   std::vector<std::uint32_t> indices;
   std::optional<std::vector<DirectX::XMFLOAT2>> uvs;
   unsigned material_idx;

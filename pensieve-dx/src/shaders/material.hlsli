@@ -10,6 +10,7 @@ struct Material {
   uint metallic_map_idx;
   uint roughness_map_idx;
   uint emission_map_idx;
+  uint normal_map_idx;
 };
 
 #endif

@@ -21,13 +21,13 @@ auto LoadScene(
   Assimp::Importer importer;
   importer.SetPropertyInteger(
     AI_CONFIG_PP_RVC_FLAGS,
-    aiComponent_TANGENTS_AND_BITANGENTS | aiComponent_COLORS |
-    aiComponent_BONEWEIGHTS | aiComponent_ANIMATIONS | aiComponent_LIGHTS |
-    aiComponent_CAMERAS);
+    aiComponent_COLORS | aiComponent_BONEWEIGHTS | aiComponent_ANIMATIONS |
+    aiComponent_LIGHTS | aiComponent_CAMERAS);
   importer.SetPropertyInteger(
     AI_CONFIG_PP_SBP_REMOVE, aiPrimitiveType_POINT | aiPrimitiveType_LINE);
   auto const scene{
     importer.ReadFile(path.string().c_str(),
+                      aiProcess_CalcTangentSpace |
                       aiProcess_JoinIdenticalVertices | aiProcess_Triangulate |
                       aiProcess_RemoveComponent | aiProcess_GenNormals |
                       aiProcess_SortByPType | aiProcess_GenUVCoords |
@@ -93,6 +93,13 @@ auto LoadScene(
     if (aiString tex_path; mtl->GetTexture(aiTextureType_EMISSIVE, 0, &tex_path)
       == aiReturn_SUCCESS) {
       mtl_data.emission_map_idx = tex_paths_to_idx.try_emplace(
+        tex_path.C_Str(),
+        static_cast<unsigned>(tex_paths_to_idx.size())).first->second;
+    }
+
+    if (aiString tex_path; mtl->GetTexture(aiTextureType_NORMALS, 0, &tex_path)
+      == aiReturn_SUCCESS) {
+      mtl_data.normal_map_idx = tex_paths_to_idx.try_emplace(
         tex_path.C_Str(),
         static_cast<unsigned>(tex_paths_to_idx.size())).first->second;
     }
@@ -203,6 +210,22 @@ auto LoadScene(
                              };
                            });
 
+    if (!mesh->HasTangentsAndBitangents()) {
+      return std::unexpected{
+        std::format("Mesh {} contains no vertex tangents.", mesh->mName.C_Str())
+      };
+    }
+    std::vector<DirectX::XMFLOAT4> tangents;
+    tangents.reserve(mesh->mNumVertices);
+    std::ranges::transform(mesh->mTangents,
+                           mesh->mTangents + mesh->mNumVertices,
+                           std::back_inserter(tangents),
+                           [](aiVector3D const& tangent) {
+                             return DirectX::XMFLOAT4{
+                               tangent.x, tangent.y, tangent.z, 0.0f
+                             };
+                           });
+
     if (!mesh->HasFaces()) {
       return std::unexpected{
         std::format("Mesh {} contains no vertex indices.", mesh->mName.C_Str())
@@ -217,8 +240,8 @@ auto LoadScene(
     }
 
     scene_data.meshes.emplace_back(std::move(positions), std::move(normals),
-                                   std::move(indices), std::move(uvs),
-                                   mesh->mMaterialIndex);
+                                   std::move(tangents), std::move(indices),
+                                   std::move(uvs), mesh->mMaterialIndex);
   }
 
   std::stack<std::pair<aiNode const*, aiMatrix4x4>> nodes;
