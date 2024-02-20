@@ -1041,6 +1041,9 @@ auto Renderer::DrawFrame(
         scene.materials[mesh.mtl_idx].cbv_idx, node.transform
       };
 
+      XMStoreFloat4x4(&draw_data.normal_mtx,
+                      XMMatrixTranspose(XMMatrixInverse(nullptr,
+                        XMLoadFloat4x4(&node.transform))));
       XMStoreFloat4x4(&draw_data.view_proj_mtx, view_proj_mtx);
 
       std::memcpy(node.mapped_draw_data_bufs[i], &draw_data, sizeof(draw_data));
