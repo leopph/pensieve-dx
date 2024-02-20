@@ -1,5 +1,9 @@
 # 🌀 pensieve-dx 🌀
 A 3D model viewer built on D3D12 using
-- Mesh shaders (WIP)
-- SM 6.6 dynamic resources
-- Enhanced barriers
+- Mesh Shaders (WIP)
+- Shader Model 6.6 Dynamic Resources
+- Enhanced Barriers
+
+The following third party libraries are used:
+- Assimp for model loading
+- stb_image for texture loading
