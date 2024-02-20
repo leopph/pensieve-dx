@@ -176,33 +176,17 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
 
   std::array<ComPtr<ID3D12Resource2>, swap_chain_buffer_count_>
     swap_chain_buffers;
-  for (UINT i{0}; i < swap_chain_buffer_count_; i++) {
-    if (FAILED(
-      swap_chain->GetBuffer(i, IID_PPV_ARGS(&swap_chain_buffers[i])))) {
-      return std::unexpected{
-        std::format("Failed to get swap chain buffer {}.", i)
-      };
-    }
+  if (auto const exp{
+    RetrieveSwapChainBuffers(swap_chain.Get(), swap_chain_buffers)
+  }; !exp) {
+    return std::unexpected{exp.error()};
   }
 
-  CD3DX12_HEAP_PROPERTIES const default_heap_props{D3D12_HEAP_TYPE_DEFAULT};
-
-  auto const depth_buf_desc{
-    CD3DX12_RESOURCE_DESC1::Tex2D(depth_buffer_format_, client_width,
-                                  client_height, 1, 1, 1, 0,
-                                  D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)
-  };
-
-  CD3DX12_CLEAR_VALUE const depth_buf_clear_value{
-    depth_buf_desc.Format, 0.0f, 0
-  };
-
   ComPtr<ID3D12Resource2> depth_buffer;
-  if (FAILED(
-    device->CreateCommittedResource3(&default_heap_props, D3D12_HEAP_FLAG_NONE ,
-      &depth_buf_desc, D3D12_BARRIER_LAYOUT_COMMON, &depth_buf_clear_value,
-      nullptr, 0, nullptr, IID_PPV_ARGS(&depth_buffer)))) {
-    return std::unexpected{"Failed to create depth buffer."};
+  if (auto const exp{
+    CreateDepthBuffer(device.Get(), depth_buffer, client_width, client_height)
+  }; !exp) {
+    return std::unexpected{exp.error()};
   }
 
   D3D12_DESCRIPTOR_HEAP_DESC constexpr rtv_heap_desc{
@@ -1001,7 +985,7 @@ auto Renderer::DrawFrame(
       D3D12_BARRIER_SYNC_NONE, D3D12_BARRIER_SYNC_RENDER_TARGET,
       D3D12_BARRIER_ACCESS_NO_ACCESS, D3D12_BARRIER_ACCESS_RENDER_TARGET,
       D3D12_BARRIER_LAYOUT_UNDEFINED, D3D12_BARRIER_LAYOUT_RENDER_TARGET,
-      swap_chain_buffers_[frame_idx_].Get(), {0, 1, 0, 1, 0, 1},
+      swap_chain_buffers_[back_buf_idx].Get(), {0, 1, 0, 1, 0, 1},
       D3D12_TEXTURE_BARRIER_FLAG_NONE
     },
     D3D12_TEXTURE_BARRIER{
@@ -1135,6 +1119,44 @@ auto Renderer::WaitForDeviceIdle() const -> std::expected<void, std::string> {
   return {};
 }
 
+auto Renderer::ResizeRenderTargets() -> std::expected<void, std::string> {
+  if (auto const exp{WaitForDeviceIdle()}; !exp) {
+    return exp;
+  }
+
+  for (auto& buf : swap_chain_buffers_) {
+    buf.Reset();
+  }
+
+  depth_buffer_.Reset();
+
+  if (FAILED(
+    swap_chain_->ResizeBuffers(0, 0, 0, DXGI_FORMAT_UNKNOWN, swap_chain_flags_
+    ))) {
+    return std::unexpected{"Failed to resize swap chain buffers."};
+  }
+
+  if (auto const exp{
+    RetrieveSwapChainBuffers(swap_chain_.Get(), swap_chain_buffers_)
+  }; !exp) {
+    return exp;
+  }
+
+  auto const swap_chain_buffer_desc{swap_chain_buffers_[0]->GetDesc1()};
+
+  if (auto const exp{
+    CreateDepthBuffer(device_.Get(), depth_buffer_,
+                      static_cast<unsigned>(swap_chain_buffer_desc.Width),
+                      static_cast<unsigned>(swap_chain_buffer_desc.Height))
+  }; !exp) {
+    return exp;
+  }
+
+  CreateSwapChainRtvs();
+  CreateDepthBufferDsv();
+  return {};
+}
+
 Renderer::Renderer(ComPtr<IDXGIFactory7> factory, ComPtr<ID3D12Device10> device,
                    ComPtr<ID3D12CommandQueue> direct_queue,
                    ComPtr<IDXGISwapChain4> swap_chain,
@@ -1169,7 +1191,6 @@ Renderer::Renderer(ComPtr<IDXGIFactory7> factory, ComPtr<ID3D12Device10> device,
   auto const rtv_heap_cpu_start{
     rtv_heap_->GetCPUDescriptorHandleForHeapStart()
   };
-
   auto const rtv_inc{
     device_->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV)
   };
@@ -1185,6 +1206,52 @@ Renderer::Renderer(ComPtr<IDXGIFactory7> factory, ComPtr<ID3D12Device10> device,
     res_desc_heap_free_indices_[i] = i;
   }
 
+  CreateSwapChainRtvs();
+  CreateDepthBufferDsv();
+}
+
+auto Renderer::RetrieveSwapChainBuffers(IDXGISwapChain4* const swap_chain,
+                                        std::span<
+                                          ComPtr<ID3D12Resource2>,
+                                          swap_chain_buffer_count_> buffers) ->
+  std::expected<void, std::string> {
+  for (UINT i{0}; i < swap_chain_buffer_count_; i++) {
+    if (FAILED(swap_chain->GetBuffer(i, IID_PPV_ARGS(&buffers[i])))) {
+      return std::unexpected{
+        std::format("Failed to get swap chain buffer {}.", i)
+      };
+    }
+  }
+  return {};
+}
+
+auto Renderer::CreateDepthBuffer(ID3D12Device10* const device,
+                                 ComPtr<ID3D12Resource2>& depth_buffer,
+                                 unsigned const width,
+                                 unsigned const height) -> std::expected<
+  void, std::string> {
+  CD3DX12_HEAP_PROPERTIES const default_heap_props{D3D12_HEAP_TYPE_DEFAULT};
+
+  auto const depth_buf_desc{
+    CD3DX12_RESOURCE_DESC1::Tex2D(depth_buffer_format_, width, height, 1, 1, 1,
+                                  0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)
+  };
+
+  CD3DX12_CLEAR_VALUE const depth_buf_clear_value{
+    depth_buf_desc.Format, 0.0f, 0
+  };
+
+  if (FAILED(
+    device->CreateCommittedResource3(&default_heap_props, D3D12_HEAP_FLAG_NONE ,
+      &depth_buf_desc, D3D12_BARRIER_LAYOUT_COMMON, &depth_buf_clear_value,
+      nullptr, 0, nullptr, IID_PPV_ARGS(&depth_buffer)))) {
+    return std::unexpected{"Failed to create depth buffer."};
+  }
+
+  return {};
+}
+
+auto Renderer::CreateSwapChainRtvs() const -> void {
   for (auto i{0}; i < swap_chain_buffer_count_; i++) {
     D3D12_RENDER_TARGET_VIEW_DESC constexpr rtv_desc{
       .Format = swap_chain_format_,
@@ -1192,11 +1259,11 @@ Renderer::Renderer(ComPtr<IDXGIFactory7> factory, ComPtr<ID3D12Device10> device,
     };
 
     device_->CreateRenderTargetView(swap_chain_buffers_[i].Get(), &rtv_desc,
-                                    CD3DX12_CPU_DESCRIPTOR_HANDLE{
-                                      rtv_heap_cpu_start, i, rtv_inc
-                                    });
+                                    rtv_cpu_handles_[i]);
   }
+}
 
+auto Renderer::CreateDepthBufferDsv() const -> void {
   D3D12_DEPTH_STENCIL_VIEW_DESC constexpr dsv_desc{
     .Format = depth_buffer_format_,
     .ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D,

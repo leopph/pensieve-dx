@@ -1,13 +1,14 @@
 #include "window.hpp"
 
+#include <bit>
+
 namespace pensieve {
 auto Window::PollEvents() noexcept -> void {
+  should_close_ = false;
+  was_resized_ = false;
+
   MSG msg;
   while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
-    if (msg.message == WM_QUIT) {
-      should_close_ = true;
-    }
-
     TranslateMessage(&msg);
     DispatchMessageW(&msg);
   }
@@ -15,6 +16,10 @@ auto Window::PollEvents() noexcept -> void {
 
 auto Window::ShouldClose() const noexcept -> bool {
   return should_close_;
+}
+
+auto Window::WasResized() const noexcept -> bool {
+  return was_resized_;
 }
 
 auto Window::ToHwnd() const noexcept -> HWND {
@@ -35,16 +40,27 @@ Window::operator bool() const noexcept {
 
 auto Window::WindowProc(HWND const hwnd, UINT const msg, WPARAM const wparam,
                         LPARAM const lparam) -> LRESULT {
-  if (msg == WM_CLOSE) {
-    PostQuitMessage(0);
-    return 0;
+  if (auto const self{
+    std::bit_cast<Window*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA))
+  }) {
+    if (msg == WM_CLOSE) {
+      self->should_close_ = true;
+      return 0;
+    }
+
+    if (msg == WM_SIZE) {
+      self->was_resized_ = true;
+      return 0;
+    }
   }
 
   return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
-Window::Window(HWND const hwnd) : hwnd_{hwnd} {
-  ShowWindow(hwnd, SW_SHOW);
+Window::Window(HWND const hwnd) :
+  hwnd_{hwnd} {
+  SetWindowLongPtrW(hwnd_, GWLP_USERDATA, std::bit_cast<LONG_PTR>(this));
+  ShowWindow(hwnd_, SW_SHOW);
 }
 
 auto Window::Create() -> std::expected<Window, std::string> {
@@ -72,7 +88,8 @@ auto Window::Create() -> std::expected<Window, std::string> {
   return Window{hwnd};
 }
 
-Window::Window(Window&& other) noexcept : hwnd_{other.hwnd_} {
+Window::Window(Window&& other) noexcept :
+  Window{other.hwnd_} {
   other.hwnd_ = nullptr;
 }
 

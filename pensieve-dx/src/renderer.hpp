@@ -2,6 +2,7 @@
 
 #include <array>
 #include <expected>
+#include <span>
 #include <string>
 
 #define WIN32_LEAN_AND_MEAN
@@ -29,6 +30,8 @@ public:
   [[nodiscard]] auto
   WaitForDeviceIdle() const -> std::expected<void, std::string>;
 
+  [[nodiscard]] auto ResizeRenderTargets() -> std::expected<void, std::string>;
+
 private:
   static auto constexpr swap_chain_buffer_count_{2};
   static auto constexpr swap_chain_format_{DXGI_FORMAT_R8G8B8A8_UNORM};
@@ -55,6 +58,20 @@ private:
            Microsoft::WRL::ComPtr<ID3D12RootSignature> root_sig,
            Microsoft::WRL::ComPtr<ID3D12PipelineState> pso,
            UINT swap_chain_flags, UINT present_flags);
+
+  [[nodiscard]] static auto RetrieveSwapChainBuffers(
+    IDXGISwapChain4* swap_chain,
+    std::span<Microsoft::WRL::ComPtr<ID3D12Resource2>, swap_chain_buffer_count_>
+    buffers) -> std::expected<void, std::string>;
+  [[nodiscard]] static auto CreateDepthBuffer(ID3D12Device10* device,
+                                              Microsoft::WRL::ComPtr<
+                                                ID3D12Resource2>& depth_buffer,
+                                              unsigned width,
+                                              unsigned height) -> std::expected<
+    void, std::string>;
+
+  auto CreateSwapChainRtvs() const -> void;
+  auto CreateDepthBufferDsv() const -> void;
 
   [[nodiscard]] auto AllocateResourceDescriptorIndex() -> UINT;
   auto FreeResourceDescriptorIndex(UINT idx) -> void;

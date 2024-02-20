@@ -22,6 +22,7 @@ public:
 
   auto PollEvents() noexcept -> void;
   [[nodiscard]] auto ShouldClose() const noexcept -> bool;
+  [[nodiscard]] auto WasResized() const noexcept -> bool;
 
   [[nodiscard]] auto ToHwnd() const noexcept -> HWND;
   [[nodiscard]] auto IsValid() const noexcept -> bool;
@@ -37,5 +38,6 @@ private:
 
   HWND hwnd_;
   bool should_close_{false};
+  bool was_resized_{false};
 };
 }

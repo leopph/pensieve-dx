@@ -43,6 +43,13 @@ auto main(int const argc, char* argv[]) -> int {
   while (!window->ShouldClose()) {
     window->PollEvents();
 
+    if (window->WasResized()) {
+      if (auto const exp{renderer->ResizeRenderTargets()}; !exp) {
+        pensieve::HandleError(exp.error());
+        return EXIT_FAILURE;
+      }
+    }
+
     if (auto const exp{renderer->DrawFrame(*gpu_scene)}; !exp) {
       pensieve::HandleError(exp.error());
       return EXIT_FAILURE;
