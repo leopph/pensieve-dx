@@ -21,9 +21,9 @@ auto LoadScene(
   Assimp::Importer importer;
   importer.SetPropertyInteger(
     AI_CONFIG_PP_RVC_FLAGS,
-    aiComponent_NORMALS | aiComponent_TANGENTS_AND_BITANGENTS |
-    aiComponent_COLORS | aiComponent_BONEWEIGHTS | aiComponent_ANIMATIONS |
-    aiComponent_LIGHTS | aiComponent_CAMERAS);
+    aiComponent_TANGENTS_AND_BITANGENTS | aiComponent_COLORS |
+    aiComponent_BONEWEIGHTS | aiComponent_ANIMATIONS | aiComponent_LIGHTS |
+    aiComponent_CAMERAS);
   importer.SetPropertyInteger(
     AI_CONFIG_PP_SBP_REMOVE, aiPrimitiveType_POINT | aiPrimitiveType_LINE);
   auto const scene{
@@ -31,7 +31,6 @@ auto LoadScene(
                       aiProcess_JoinIdenticalVertices | aiProcess_Triangulate |
                       aiProcess_RemoveComponent | aiProcess_GenNormals |
                       aiProcess_SortByPType | aiProcess_GenUVCoords |
-                      aiProcess_OptimizeMeshes | aiProcess_OptimizeGraph |
                       aiProcess_GlobalScale | aiProcess_ConvertToLeftHanded)
   };
 
