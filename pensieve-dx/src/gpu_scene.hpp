@@ -22,17 +22,22 @@ struct GpuMesh {
   Microsoft::WRL::ComPtr<ID3D12Resource2> pos_buf;
   Microsoft::WRL::ComPtr<ID3D12Resource2> norm_buf;
   Microsoft::WRL::ComPtr<ID3D12Resource2> tan_buf;
-  Microsoft::WRL::ComPtr<ID3D12Resource2> idx_buf;
-  D3D12_INDEX_BUFFER_VIEW ibv;
-
   std::optional<Microsoft::WRL::ComPtr<ID3D12Resource2>> uv_buf;
-  std::optional<UINT> uv_buf_srv_idx;
+
+  Microsoft::WRL::ComPtr<ID3D12Resource2> vertex_idx_buf;
+  Microsoft::WRL::ComPtr<ID3D12Resource2> prim_idx_buf;
+  Microsoft::WRL::ComPtr<ID3D12Resource2> meshlet_buf;
 
   UINT pos_buf_srv_idx;
   UINT norm_buf_srv_idx;
   UINT tan_buf_srv_idx;
+  std::optional<UINT> uv_buf_srv_idx;
+  UINT vertex_idx_buf_srv_idx;
+  UINT prim_idx_buf_srv_idx;
+  UINT meshlet_buf_srv_idx;
+
   UINT mtl_idx;
-  UINT index_count;
+  UINT meshlet_count;
 };
 
 struct GpuNode {

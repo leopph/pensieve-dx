@@ -3,6 +3,10 @@
   "builtin-baseline": "2c401863dd54a640aeb26ed736c55489c079323b",
   "dependencies": [
     "assimp",
-    "stb"
+    "stb",
+    {
+      "name": "directxmesh",
+      "features": [ "dx12", "spectre" ]
+    }
   ]
 }

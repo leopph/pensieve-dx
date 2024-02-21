@@ -4,6 +4,7 @@
 //#include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -12,6 +13,7 @@
 #include <utility>
 
 #include <d3dx12.h>
+#include <DirectXMesh.h>
 
 #ifndef NDEBUG
 #include <dxgidebug.h>
@@ -117,7 +119,11 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
   }
 
   if (features.HighestRootSignatureVersion() < D3D_ROOT_SIGNATURE_VERSION_1_1) {
-    return std::unexpected{"GPU does not support root signature 1.2."};
+    return std::unexpected{"GPU does not support root signature 1.1."};
+  }
+
+  if (features.MeshShaderTier() < D3D12_MESH_SHADER_TIER_1) {
+    return std::unexpected{"GPU does not support mesh shader tier 1."};
   }
 
   D3D12_COMMAND_QUEUE_DESC constexpr direct_queue_desc{
@@ -310,17 +316,16 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
 
   std::filesystem::path const exe_path{exe_path_str};
 
-  std::ifstream vs_file{
-    exe_path.parent_path() / "vertex_shader.cso",
-    std::ios::in | std::ios::binary
+  std::ifstream ms_file{
+    exe_path.parent_path() / "mesh_shader.cso", std::ios::in | std::ios::binary
   };
 
-  if (!vs_file.is_open()) {
-    return std::unexpected{"Failed to load vertex shader file."};
+  if (!ms_file.is_open()) {
+    return std::unexpected{"Failed to load mesh shader file."};
   }
 
-  std::vector<std::uint8_t> const vs_bytes{
-    std::istreambuf_iterator{vs_file}, {}
+  std::vector<std::uint8_t> const ms_bytes{
+    std::istreambuf_iterator{ms_file}, {}
   };
 
   std::ifstream ps_file{
@@ -336,7 +341,7 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
   };
 
   struct {
-    CD3DX12_PIPELINE_STATE_STREAM_VS vs;
+    CD3DX12_PIPELINE_STATE_STREAM_MS ms;
     CD3DX12_PIPELINE_STATE_STREAM_PS ps;
     CD3DX12_PIPELINE_STATE_STREAM_ROOT_SIGNATURE root_sig;
     CD3DX12_PIPELINE_STATE_STREAM_RENDER_TARGET_FORMATS rt_formats;
@@ -344,7 +349,7 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
     CD3DX12_PIPELINE_STATE_STREAM_DEPTH_STENCIL_FORMAT ds_format;
   } pso_desc;
 
-  pso_desc.vs = D3D12_SHADER_BYTECODE{vs_bytes.data(), vs_bytes.size()};
+  pso_desc.ms = D3D12_SHADER_BYTECODE{ms_bytes.data(), ms_bytes.size()};
   pso_desc.ps = D3D12_SHADER_BYTECODE{ps_bytes.data(), ps_bytes.size()};
   pso_desc.root_sig = root_sig.Get();
   pso_desc.rt_formats = D3D12_RT_FORMAT_ARRAY{{swap_chain_format_}, 1};
@@ -736,24 +741,86 @@ auto Renderer::CreateGpuScene(
     }
 
     {
-      auto const idx_count{mesh_data.indices.size()};
-      auto constexpr idx_stride{sizeof(std::uint32_t)};
-      auto const idx_buffer_size{idx_count * idx_stride};
-      std::memcpy(upload_buffer_ptr, mesh_data.indices.data(), idx_buffer_size);
-
-      if (auto const exp{
-        create_buffer(idx_buffer_size, gpu_mesh.idx_buf)
-      }; !exp) {
+      std::vector<DirectX::Meshlet> meshlets;
+      std::vector<std::uint8_t> unique_vertex_indices;
+      std::vector<DirectX::MeshletTriangle> primitive_indices;
+      if (FAILED(
+        ComputeMeshlets(mesh_data.indices.data(), mesh_data.indices.size() / 3,
+          std::bit_cast<DirectX::XMFLOAT3*>(mesh_data.positions.data()),
+          mesh_data.positions.size(), nullptr, meshlets, unique_vertex_indices,
+          primitive_indices))) {
         return std::unexpected{
-          std::format("Failed to create mesh {} index buffer: {}", idx,
-                      exp.error())
+          std::format("Failed to compute meshlets for mesh {}.", idx)
         };
       }
 
-      gpu_mesh.ibv.Format = DXGI_FORMAT_R32_UINT;
-      gpu_mesh.ibv.BufferLocation = gpu_mesh.idx_buf->GetGPUVirtualAddress();
-      gpu_mesh.ibv.SizeInBytes = static_cast<UINT>(idx_buffer_size);
-      gpu_mesh.index_count = static_cast<UINT>(idx_count);
+      {
+        auto const meshlet_count{meshlets.size()};
+        auto constexpr meshlet_stride{sizeof(decltype(meshlets)::value_type)};
+        auto const meshlet_buf_size{meshlet_count * meshlet_stride};
+
+        std::memcpy(upload_buffer_ptr, meshlets.data(), meshlet_buf_size);
+
+        if (auto const exp{
+          create_buffer(meshlet_buf_size, gpu_mesh.meshlet_buf)
+        }; !exp) {
+          return std::unexpected{
+            std::format("Failed to create mesh {} meshlet buffer: {}", idx,
+                        exp.error())
+          };
+        }
+
+        create_buffer_srv(static_cast<UINT>(meshlet_count),
+                          static_cast<UINT>(meshlet_stride),
+                          gpu_mesh.meshlet_buf.Get(),
+                          gpu_mesh.meshlet_buf_srv_idx);
+      }
+
+      {
+        auto const vertex_idx_count{unique_vertex_indices.size() / 4};
+        auto constexpr vertex_idx_stride{sizeof(std::uint32_t)};
+        auto const vertex_idx_buf_size{vertex_idx_count * vertex_idx_stride};
+
+        std::memcpy(upload_buffer_ptr, unique_vertex_indices.data(), vertex_idx_buf_size);
+
+        if (auto const exp{
+          create_buffer(vertex_idx_buf_size, gpu_mesh.vertex_idx_buf)
+        }; !exp) {
+          return std::unexpected{
+            std::format("Failed to create mesh {} vertex index buffer: {}", idx,
+                        exp.error())
+          };
+        }
+
+        create_buffer_srv(static_cast<UINT>(vertex_idx_count),
+                          static_cast<UINT>(vertex_idx_stride),
+                          gpu_mesh.vertex_idx_buf.Get(),
+                          gpu_mesh.vertex_idx_buf_srv_idx);
+      }
+
+      {
+        auto const prim_idx_count{primitive_indices.size()};
+        auto constexpr prim_idx_stride{sizeof(DirectX::MeshletTriangle)};
+        auto const prim_idx_buf_size{prim_idx_count * prim_idx_stride};
+
+        std::memcpy(upload_buffer_ptr, primitive_indices.data(), prim_idx_buf_size);
+
+        if (auto const exp{
+          create_buffer(prim_idx_buf_size, gpu_mesh.prim_idx_buf)
+        }; !exp) {
+          return std::unexpected{
+            std::format("Failed to create mesh {} primitive index buffer: {}",
+                        idx, exp.error())
+          };
+        }
+
+        create_buffer_srv(static_cast<UINT>(prim_idx_count),
+                          static_cast<UINT>(prim_idx_stride),
+                          gpu_mesh.prim_idx_buf.Get(),
+                          gpu_mesh.prim_idx_buf_srv_idx);
+      }
+
+      gpu_mesh.meshlet_count = static_cast<UINT>(meshlets.size());
     }
 
     gpu_mesh.mtl_idx = mesh_data.material_idx;
@@ -889,9 +956,17 @@ auto Renderer::DrawFrame(
       auto const& mesh{scene.meshes[node.mesh_indices[i]]};
 
       DrawData draw_data{
-        mesh.pos_buf_srv_idx, mesh.norm_buf_srv_idx, mesh.tan_buf_srv_idx,
-        mesh.uv_buf_srv_idx ? *mesh.uv_buf_srv_idx : INVALID_RESOURCE_IDX,
-        scene.materials[mesh.mtl_idx].cbv_idx, {}, node.transform
+        .pos_buf_idx = mesh.pos_buf_srv_idx,
+        .norm_buf_idx = mesh.norm_buf_srv_idx,
+        .tan_buf_idx = mesh.tan_buf_srv_idx,
+        .uv_buf_idx = mesh.uv_buf_srv_idx
+                        ? *mesh.uv_buf_srv_idx
+                        : INVALID_RESOURCE_IDX,
+        .vertex_idx_buf_idx = mesh.vertex_idx_buf_srv_idx,
+        .prim_idx_buf_idx = mesh.prim_idx_buf_srv_idx,
+        .meshlet_buf_idx = mesh.meshlet_buf_srv_idx,
+        .mtl_buf_idx = scene.materials[mesh.mtl_idx].cbv_idx,
+        .model_mtx = node.transform
       };
 
       XMStoreFloat4x4(&draw_data.normal_mtx,
@@ -903,9 +978,7 @@ auto Renderer::DrawFrame(
 
       cmd_lists_[frame_idx_]->SetGraphicsRootConstantBufferView(
         0, node.draw_data_bufs[i]->GetGPUVirtualAddress());
-      cmd_lists_[frame_idx_]->IASetIndexBuffer(&mesh.ibv);
-      cmd_lists_[frame_idx_]->
-        DrawIndexedInstanced(mesh.index_count, 1, 0, 0, 0);
+      cmd_lists_[frame_idx_]->DispatchMesh(mesh.meshlet_count, 1, 1);
     }
   }
 

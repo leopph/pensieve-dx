@@ -1,7 +1,7 @@
-#include "globals.hlsli"
-#include "vs_out.hlsli"
-#include "material.hlsli"
 #include "common.hlsli"
+#include "globals.hlsli"
+#include "material.hlsli"
+#include "ps_in.hlsli"
 
 static const float3 kLightDir = normalize(float3(0, 0, 1));
 static const float kPi = 3.14159265;
@@ -22,7 +22,7 @@ float3 SchlickFresnel(const float v_dot_h, const float3 f0) {
   return f0 + (1 - f0) * pow(2, (-5.55473 * v_dot_h - 6.98316) - v_dot_h);
 }
 
-float4 main(const VsOut vs_out) : SV_Target {
+float4 main(const PsIn ps_in) : SV_Target {
   const ConstantBuffer<Material> material = ResourceDescriptorHeap[g_draw_data.mtl_buf_idx];
 
   float3 base_color = material.base_color;
@@ -32,38 +32,38 @@ float4 main(const VsOut vs_out) : SV_Target {
 
   if (material.base_color_map_idx != INVALID_RESOURCE_IDX) {
     const Texture2D base_color_map = ResourceDescriptorHeap[material.base_color_map_idx];
-    base_color *= pow(base_color_map.Sample(g_sampler, vs_out.uv).rgb, kGamma);
+    base_color *= pow(base_color_map.Sample(g_sampler, ps_in.uv).rgb, kGamma);
   }
 
   if (material.metallic_map_idx != INVALID_RESOURCE_IDX) {
     const Texture2D metallic_map = ResourceDescriptorHeap[material.metallic_map_idx];
-    metallic *= metallic_map.Sample(g_sampler, vs_out.uv).r;
+    metallic *= metallic_map.Sample(g_sampler, ps_in.uv).r;
   }
 
   if (material.roughness_map_idx != INVALID_RESOURCE_IDX) {
     const Texture2D roughness_map = ResourceDescriptorHeap[material.roughness_map_idx];
-    roughness *= roughness_map.Sample(g_sampler, vs_out.uv).r;
+    roughness *= roughness_map.Sample(g_sampler, ps_in.uv).r;
   }
 
   if (material.emission_map_idx != INVALID_RESOURCE_IDX) {
     const Texture2D emission_map = ResourceDescriptorHeap[material.emission_map_idx];
-    emission *= emission_map.Sample(g_sampler, vs_out.uv).rgb;
+    emission *= emission_map.Sample(g_sampler, ps_in.uv).rgb;
   }
 
   float3 normal;
 
   if (material.normal_map_idx != INVALID_RESOURCE_IDX) {
     const Texture2D normal_map = ResourceDescriptorHeap[material.normal_map_idx];
-    normal = normal_map.Sample(g_sampler, vs_out.uv).rgb * 2 - 1;
-    normal = normalize(mul(normalize(normal), vs_out.tbn_mtx_ws));
+    normal = normal_map.Sample(g_sampler, ps_in.uv).rgb * 2 - 1;
+    normal = normalize(mul(normalize(normal), ps_in.tbn_mtx_ws));
   } else {
-    normal = normalize(vs_out.normal_ws);
+    normal = normalize(ps_in.normal_ws);
   }
 
   const float3 f0 = lerp(0.04, base_color, metallic);
 
   const float3 dir_to_light = normalize(-kLightDir);
-  const float3 dir_to_cam = normalize(kCameraPos - vs_out.position_ws);
+  const float3 dir_to_cam = normalize(kCameraPos - ps_in.position_ws);
   const float3 halfway = normalize(dir_to_cam + dir_to_light);
 
   const float n_dot_l = saturate(dot(normal, dir_to_light));

@@ -18,9 +18,6 @@
     <ClCompile Include="src\main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\scene_loading.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="src\window.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -30,20 +27,21 @@
     <ClCompile Include="src\error.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\scene_loading.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="vcpkg.json" />
     <None Include="src\shaders\draw_data.hlsli" />
-    <None Include="src\shaders\vs_out.hlsli" />
+    <None Include="src\shaders\ps_in.hlsli" />
     <None Include="src\shaders\material.hlsli" />
     <None Include="src\shaders\globals.hlsli" />
     <None Include="packages.config" />
     <None Include="src\shaders\common.hlsli" />
+    <None Include="src\shaders\meshlet.hlsli" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="src\scene_loading.hpp">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="src\renderer.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -62,15 +60,18 @@
     <ClInclude Include="src\error.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\Camera.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="src\scene_data.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\Camera.hpp">
+    <ClInclude Include="src\scene_loading.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <FxCompile Include="src\shaders\vertex_shader.hlsl" />
     <FxCompile Include="src\shaders\pixel_shader.hlsl" />
+    <FxCompile Include="src\shaders\mesh_shader.hlsl" />
   </ItemGroup>
 </Project>
