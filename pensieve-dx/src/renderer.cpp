@@ -116,7 +116,7 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
     return std::unexpected{"GPU does not support enhanced barriers."};
   }
 
-  if (features.HighestRootSignatureVersion() < D3D_ROOT_SIGNATURE_VERSION_1_2) {
+  if (features.HighestRootSignatureVersion() < D3D_ROOT_SIGNATURE_VERSION_1_1) {
     return std::unexpected{"GPU does not support root signature 1.2."};
   }
 
@@ -272,11 +272,11 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
   root_param.InitAsConstantBufferView(
     0, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC_WHILE_SET_AT_EXECUTE,
     D3D12_SHADER_VISIBILITY_ALL);
-  CD3DX12_STATIC_SAMPLER_DESC1 const sampler_desc{0};
+  CD3DX12_STATIC_SAMPLER_DESC const sampler_desc{0};
 
   D3D12_VERSIONED_ROOT_SIGNATURE_DESC const root_sig_desc{
-    .Version = D3D_ROOT_SIGNATURE_VERSION_1_2,
-    .Desc_1_2 = {
+    .Version = D3D_ROOT_SIGNATURE_VERSION_1_1,
+    .Desc_1_1 = {
       1, &root_param, 1, &sampler_desc,
       D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED
     }
@@ -376,36 +376,8 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
 
 auto Renderer::CreateGpuScene(
   SceneData const& scene_data) -> std::expected<GpuScene, std::string> {
-  auto constexpr mtl_buffer_size{
-    std::max(NextMultipleOf<UINT64>(256, sizeof(Material)),
-             NextMultipleOf<UINT64>(256, sizeof(DrawData)))
-  };
-
-  auto const upload_buffer_size{
-    [&scene_data] {
-      UINT64 ret{mtl_buffer_size};
-
-      for (auto const& [width, height, bytes] : scene_data.textures) {
-        ret = std::max<UINT64>(ret, 4 * width * height);
-      }
-
-      for (auto const& mesh_data : scene_data.meshes) {
-        ret = std::max<UINT64>(
-          ret, mesh_data.positions.size() * sizeof(decltype(mesh_data.positions
-          )::value_type));
-        if (mesh_data.uvs) {
-          ret = std::max<UINT64>(
-            ret, mesh_data.uvs->size() * sizeof(decltype(mesh_data.uvs
-            )::value_type::value_type));
-        }
-        ret = std::max<UINT64>(
-          ret, mesh_data.indices.size() * sizeof(decltype(mesh_data.indices
-          )::value_type));
-      }
-
-      return ret;
-    }()
-  };
+  // Make sure this is big enough to hold any single resource.
+  auto constexpr upload_buffer_size{1'000'000'000};
 
   auto const res_desc_heap_cpu_start{
     res_desc_heap_->GetCPUDescriptorHandleForHeapStart()
@@ -539,11 +511,66 @@ auto Renderer::CreateGpuScene(
                                       });
   }
 
+  auto const create_buffer{
+    [this, &default_heap_props, &upload_buffer, &upload_fence_val, &upload_fence
+    ](std::size_t const buf_size,
+      ComPtr<ID3D12Resource2>& buf) -> std::expected<void, std::string> {
+      auto const buf_desc{CD3DX12_RESOURCE_DESC1::Buffer(buf_size)};
+
+      if FAILED(
+        device_->CreateCommittedResource3(&default_heap_props,
+          D3D12_HEAP_FLAG_NONE, &buf_desc, D3D12_BARRIER_LAYOUT_UNDEFINED,
+          nullptr, nullptr, 0, nullptr, IID_PPV_ARGS(&buf))) {
+        return std::unexpected{"Failed to create buffer."};
+      }
+
+      if (FAILED(cmd_allocs_[frame_idx_]->Reset())) {
+        return std::unexpected{"Failed to reset command allocator."};
+      }
+
+      if (FAILED(
+        cmd_lists_[frame_idx_]->Reset(cmd_allocs_[frame_idx_].Get(), nullptr
+        ))) {
+        return std::unexpected{"Failed to reset command list."};
+      }
+
+      cmd_lists_[frame_idx_]->CopyBufferRegion(buf.Get(), 0,
+                                               upload_buffer.Get(), 0,
+                                               buf_desc.Width);
+
+      if (FAILED(cmd_lists_[frame_idx_]->Close())) {
+        return std::unexpected{"Failed to close command list."};
+      }
+
+      direct_queue_->ExecuteCommandLists(
+        1, CommandListCast(cmd_lists_[frame_idx_].GetAddressOf()));
+
+      ++upload_fence_val;
+      if (FAILED(direct_queue_->Signal(upload_fence.Get(), upload_fence_val))) {
+        return std::unexpected{"Failed to signal upload fence."};
+      }
+
+      if (FAILED(
+        upload_fence->SetEventOnCompletion(upload_fence_val, nullptr))) {
+        return std::unexpected{"Failed to wait for upload fence."};
+      }
+
+      return {};
+    }
+  };
+
+  auto constexpr mtl_buffer_size{
+    std::max(NextMultipleOf<UINT64>(256, sizeof(Material)),
+             NextMultipleOf<UINT64>(256, sizeof(DrawData)))
+  };
+
   for (auto const& [idx, mtl_data] : std::ranges::views::enumerate(
          scene_data.materials)) {
+    auto& gpu_mtl{gpu_scene.materials.emplace_back()};
+
     Material const mtl{
-      mtl_data.base_color, mtl_data.metallic, mtl_data.roughness,
-      mtl_data.emission_color,
+      DirectX::XMFLOAT3{mtl_data.base_color.data()}, mtl_data.metallic,
+      mtl_data.roughness, DirectX::XMFLOAT3{mtl_data.emission_color.data()},
       mtl_data.base_color_map_idx
         ? gpu_scene.textures[*mtl_data.base_color_map_idx].srv_idx
         : INVALID_RESOURCE_IDX,
@@ -562,47 +589,10 @@ auto Renderer::CreateGpuScene(
     };
     std::memcpy(upload_buffer_ptr, &mtl, sizeof(mtl));
 
-    auto const buf_desc{CD3DX12_RESOURCE_DESC1::Buffer(mtl_buffer_size)};
-
-    auto& gpu_mtl{gpu_scene.materials.emplace_back()};
-    if (FAILED(
-      device_->CreateCommittedResource3(&default_heap_props,
-        D3D12_HEAP_FLAG_NONE, &buf_desc, D3D12_BARRIER_LAYOUT_UNDEFINED, nullptr
-        , nullptr, 0, nullptr, IID_PPV_ARGS(&gpu_mtl.res)))) {
+    if (auto const exp{create_buffer(mtl_buffer_size, gpu_mtl.res)}; !exp) {
       return std::unexpected{
-        std::format("Failed to create GPU material {}.", idx)
+        std::format("Failed to create material buffer {}: {}", idx, exp.error())
       };
-    }
-
-    if (FAILED(cmd_allocs_[frame_idx_]->Reset())) {
-      return std::unexpected{
-        "Failed to reset command allocator for material copy."
-      };
-    }
-
-    if (FAILED(
-      cmd_lists_[frame_idx_]->Reset(cmd_allocs_[frame_idx_].Get(), nullptr))) {
-      return std::unexpected{"Failed to reset command list for material copy."};
-    }
-
-    cmd_lists_[frame_idx_]->CopyBufferRegion(gpu_mtl.res.Get(), 0,
-                                             upload_buffer.Get(), 0,
-                                             sizeof(Material));
-
-    if (FAILED(cmd_lists_[frame_idx_]->Close())) {
-      return std::unexpected{"Failed to close command list for material copy."};
-    }
-
-    direct_queue_->ExecuteCommandLists(
-      1, CommandListCast(cmd_lists_[frame_idx_].GetAddressOf()));
-
-    ++upload_fence_val;
-    if (FAILED(direct_queue_->Signal(upload_fence.Get(), upload_fence_val))) {
-      return std::unexpected{"Failed to signal upload fence."};
-    }
-
-    if (FAILED(upload_fence->SetEventOnCompletion(upload_fence_val, nullptr))) {
-      return std::unexpected{"Failed to wait for upload fence."};
     }
 
     gpu_mtl.cbv_idx = AllocateResourceDescriptorIndex();
@@ -622,389 +612,160 @@ auto Renderer::CreateGpuScene(
          scene_data.meshes)) {
     auto& gpu_mesh{gpu_scene.meshes.emplace_back()};
 
+    auto const create_buffer_srv{
+      [this, res_desc_heap_cpu_start, res_desc_inc](UINT const element_count,
+                                                    UINT const element_stride,
+                                                    ID3D12Resource2* const buf,
+                                                    UINT& srv_idx) {
+        srv_idx = AllocateResourceDescriptorIndex();
+
+        D3D12_SHADER_RESOURCE_VIEW_DESC const srv_desc{
+          .Format = DXGI_FORMAT_UNKNOWN,
+          .ViewDimension = D3D12_SRV_DIMENSION_BUFFER,
+          .Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+          .Buffer = {
+            0, static_cast<UINT>(element_count),
+            static_cast<UINT>(element_stride), D3D12_BUFFER_SRV_FLAG_NONE
+          }
+        };
+
+        device_->CreateShaderResourceView(buf, &srv_desc,
+                                          CD3DX12_CPU_DESCRIPTOR_HANDLE{
+                                            res_desc_heap_cpu_start,
+                                            static_cast<INT>(srv_idx),
+                                            res_desc_inc
+                                          });
+      }
+    };
+
     {
-      auto const position_buffer_size{
-        mesh_data.positions.size() * sizeof(decltype(mesh_data.positions
-        )::value_type)
-      };
-      std::memcpy(upload_buffer_ptr, mesh_data.positions.data(),
-                  position_buffer_size);
+      auto const pos_count{mesh_data.positions.size()};
+      auto constexpr pos_stride{sizeof(DirectX::XMFLOAT4)};
+      auto const pos_buf_size{pos_count * pos_stride};
 
-      auto const pos_buf_desc{
-        CD3DX12_RESOURCE_DESC1::Buffer(position_buffer_size)
-      };
+      std::ranges::transform(mesh_data.positions,
+                             std::bit_cast<DirectX::XMFLOAT4*>(
+                               upload_buffer_ptr), [](Float3 const& pos) {
+                               return DirectX::XMFLOAT4{
+                                 pos[0], pos[1], pos[2], 1.0f
+                               };
+                             });
 
-      if FAILED(
-        device_->CreateCommittedResource3(&default_heap_props,
-          D3D12_HEAP_FLAG_NONE, &pos_buf_desc, D3D12_BARRIER_LAYOUT_UNDEFINED,
-          nullptr, nullptr, 0, nullptr, IID_PPV_ARGS(&gpu_mesh.pos_buf))) {
+      if (auto const exp{create_buffer(pos_buf_size, gpu_mesh.pos_buf)}; !exp) {
         return std::unexpected{
-          std::format("Failed to create GPU mesh positions {}.", idx)
+          std::format("Failed to create mesh {} position buffer: {}", idx,
+                      exp.error())
         };
       }
 
-      if (FAILED(cmd_allocs_[frame_idx_]->Reset())) {
-        return std::unexpected{
-          "Failed to reset command allocator for mesh position copy."
-        };
-      }
-
-      if (FAILED(
-        cmd_lists_[frame_idx_]->Reset(cmd_allocs_[frame_idx_].Get(), nullptr
-        ))) {
-        return std::unexpected{
-          "Failed to reset command list for mesh position copy."
-        };
-      }
-
-      cmd_lists_[frame_idx_]->CopyBufferRegion(gpu_mesh.pos_buf.Get(), 0,
-                                               upload_buffer.Get(), 0,
-                                               position_buffer_size);
-
-      if (FAILED(cmd_lists_[frame_idx_]->Close())) {
-        return std::unexpected{
-          "Failed to close command list for mesh position copy."
-        };
-      }
-
-      direct_queue_->ExecuteCommandLists(
-        1, CommandListCast(cmd_lists_[frame_idx_].GetAddressOf()));
-
-      ++upload_fence_val;
-      if (FAILED(direct_queue_->Signal(upload_fence.Get(), upload_fence_val))) {
-        return std::unexpected{"Failed to signal upload fence."};
-      }
-
-      if (FAILED(
-        upload_fence->SetEventOnCompletion(upload_fence_val, nullptr))) {
-        return std::unexpected{"Failed to wait for upload fence."};
-      }
-
-      gpu_mesh.pos_buf_srv_idx = AllocateResourceDescriptorIndex();
-
-      D3D12_SHADER_RESOURCE_VIEW_DESC const pos_srv_desc{
-        .Format = DXGI_FORMAT_UNKNOWN,
-        .ViewDimension = D3D12_SRV_DIMENSION_BUFFER,
-        .Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
-        .Buffer = {
-          0, static_cast<UINT>(mesh_data.positions.size()),
-          sizeof(decltype(mesh_data.positions)::value_type),
-          D3D12_BUFFER_SRV_FLAG_NONE
-        }
-      };
-
-      device_->CreateShaderResourceView(gpu_mesh.pos_buf.Get(), &pos_srv_desc,
-                                        CD3DX12_CPU_DESCRIPTOR_HANDLE{
-                                          res_desc_heap_cpu_start,
-                                          static_cast<INT>(gpu_mesh.
-                                            pos_buf_srv_idx),
-                                          res_desc_inc
-                                        });
+      create_buffer_srv(static_cast<UINT>(pos_count),
+                        static_cast<UINT>(pos_stride), gpu_mesh.pos_buf.Get(),
+                        gpu_mesh.pos_buf_srv_idx);
     }
 
     {
-      auto const normal_buffer_size{
-        mesh_data.normals.size() * sizeof(decltype(mesh_data.normals
-        )::value_type)
-      };
-      std::memcpy(upload_buffer_ptr, mesh_data.normals.data(),
-                  normal_buffer_size);
+      auto const norm_count{mesh_data.normals.size()};
+      auto constexpr norm_stride{sizeof(DirectX::XMFLOAT4)};
+      auto const norm_buf_size{norm_count * norm_stride};
 
-      auto const normal_buf_desc{
-        CD3DX12_RESOURCE_DESC1::Buffer(normal_buffer_size)
-      };
+      std::ranges::transform(mesh_data.normals,
+                             std::bit_cast<DirectX::XMFLOAT4*>(
+                               upload_buffer_ptr), [](Float3 const& norm) {
+                               return DirectX::XMFLOAT4{
+                                 norm[0], norm[1], norm[2], 0.0f
+                               };
+                             });
 
-      if FAILED(
-        device_->CreateCommittedResource3(&default_heap_props,
-          D3D12_HEAP_FLAG_NONE, &normal_buf_desc, D3D12_BARRIER_LAYOUT_UNDEFINED
-          , nullptr, nullptr, 0, nullptr, IID_PPV_ARGS(&gpu_mesh.norm_buf))) {
+      if (auto const exp{
+        create_buffer(norm_buf_size, gpu_mesh.norm_buf)
+      }; !exp) {
         return std::unexpected{
-          std::format("Failed to create GPU mesh normals {}.", idx)
+          std::format("Failed to create mesh {} normal buffer: {}", idx,
+                      exp.error())
         };
       }
 
-      if (FAILED(cmd_allocs_[frame_idx_]->Reset())) {
-        return std::unexpected{
-          "Failed to reset command allocator for mesh normal copy."
-        };
-      }
-
-      if (FAILED(
-        cmd_lists_[frame_idx_]->Reset(cmd_allocs_[frame_idx_].Get(), nullptr
-        ))) {
-        return std::unexpected{
-          "Failed to reset command list for mesh normal copy."
-        };
-      }
-
-      cmd_lists_[frame_idx_]->CopyBufferRegion(gpu_mesh.norm_buf.Get(), 0,
-                                               upload_buffer.Get(), 0,
-                                               normal_buffer_size);
-
-      if (FAILED(cmd_lists_[frame_idx_]->Close())) {
-        return std::unexpected{
-          "Failed to close command list for mesh normal copy."
-        };
-      }
-
-      direct_queue_->ExecuteCommandLists(
-        1, CommandListCast(cmd_lists_[frame_idx_].GetAddressOf()));
-
-      ++upload_fence_val;
-      if (FAILED(direct_queue_->Signal(upload_fence.Get(), upload_fence_val))) {
-        return std::unexpected{"Failed to signal upload fence."};
-      }
-
-      if (FAILED(
-        upload_fence->SetEventOnCompletion(upload_fence_val, nullptr))) {
-        return std::unexpected{"Failed to wait for upload fence."};
-      }
-
-      gpu_mesh.norm_buf_srv_idx = AllocateResourceDescriptorIndex();
-
-      D3D12_SHADER_RESOURCE_VIEW_DESC const norm_srv_desc{
-        .Format = DXGI_FORMAT_UNKNOWN,
-        .ViewDimension = D3D12_SRV_DIMENSION_BUFFER,
-        .Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
-        .Buffer = {
-          0, static_cast<UINT>(mesh_data.normals.size()),
-          sizeof(decltype(mesh_data.normals)::value_type),
-          D3D12_BUFFER_SRV_FLAG_NONE
-        }
-      };
-
-      device_->CreateShaderResourceView(gpu_mesh.norm_buf.Get(), &norm_srv_desc,
-                                        CD3DX12_CPU_DESCRIPTOR_HANDLE{
-                                          res_desc_heap_cpu_start,
-                                          static_cast<INT>(gpu_mesh.
-                                            norm_buf_srv_idx),
-                                          res_desc_inc
-                                        });
+      create_buffer_srv(static_cast<UINT>(norm_count),
+                        static_cast<UINT>(norm_stride), gpu_mesh.norm_buf.Get(),
+                        gpu_mesh.norm_buf_srv_idx);
     }
 
     {
-      auto const tangent_buffer_size{
-        mesh_data.tangents.size() * sizeof(decltype(mesh_data.tangents
-        )::value_type)
-      };
-      std::memcpy(upload_buffer_ptr, mesh_data.tangents.data(),
-                  tangent_buffer_size);
+      auto const tan_count{mesh_data.tangents.size()};
+      auto constexpr tan_stride{sizeof(DirectX::XMFLOAT4)};
+      auto const tan_buf_size{tan_count * tan_stride};
 
-      auto const tangent_buf_desc{
-        CD3DX12_RESOURCE_DESC1::Buffer(tangent_buffer_size)
-      };
+      std::ranges::transform(mesh_data.tangents,
+                             std::bit_cast<DirectX::XMFLOAT4*>(
+                               upload_buffer_ptr), [](Float3 const& tan) {
+                               return DirectX::XMFLOAT4{
+                                 tan[0], tan[1], tan[2], 0.0f
+                               };
+                             });
 
-      if FAILED(
-        device_->CreateCommittedResource3(&default_heap_props,
-          D3D12_HEAP_FLAG_NONE, &tangent_buf_desc,
-          D3D12_BARRIER_LAYOUT_UNDEFINED, nullptr, nullptr, 0, nullptr,
-          IID_PPV_ARGS(&gpu_mesh.tan_buf))) {
+      if (auto const exp{create_buffer(tan_buf_size, gpu_mesh.tan_buf)}; !exp) {
         return std::unexpected{
-          std::format("Failed to create GPU mesh tangents {}.", idx)
+          std::format("Failed to create mesh {} tangent buffer: {}", idx,
+                      exp.error())
         };
       }
 
-      if (FAILED(cmd_allocs_[frame_idx_]->Reset())) {
-        return std::unexpected{
-          "Failed to reset command allocator for mesh tangent copy."
-        };
-      }
-
-      if (FAILED(
-        cmd_lists_[frame_idx_]->Reset(cmd_allocs_[frame_idx_].Get(), nullptr
-        ))) {
-        return std::unexpected{
-          "Failed to reset command list for mesh tangent copy."
-        };
-      }
-
-      cmd_lists_[frame_idx_]->CopyBufferRegion(gpu_mesh.tan_buf.Get(), 0,
-                                               upload_buffer.Get(), 0,
-                                               tangent_buffer_size);
-
-      if (FAILED(cmd_lists_[frame_idx_]->Close())) {
-        return std::unexpected{
-          "Failed to close command list for mesh tangent copy."
-        };
-      }
-
-      direct_queue_->ExecuteCommandLists(
-        1, CommandListCast(cmd_lists_[frame_idx_].GetAddressOf()));
-
-      ++upload_fence_val;
-      if (FAILED(direct_queue_->Signal(upload_fence.Get(), upload_fence_val))) {
-        return std::unexpected{"Failed to signal upload fence."};
-      }
-
-      if (FAILED(
-        upload_fence->SetEventOnCompletion(upload_fence_val, nullptr))) {
-        return std::unexpected{"Failed to wait for upload fence."};
-      }
-
-      gpu_mesh.tan_buf_srv_idx = AllocateResourceDescriptorIndex();
-
-      D3D12_SHADER_RESOURCE_VIEW_DESC const tan_srv_desc{
-        .Format = DXGI_FORMAT_UNKNOWN,
-        .ViewDimension = D3D12_SRV_DIMENSION_BUFFER,
-        .Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
-        .Buffer = {
-          0, static_cast<UINT>(mesh_data.tangents.size()),
-          sizeof(decltype(mesh_data.tangents)::value_type),
-          D3D12_BUFFER_SRV_FLAG_NONE
-        }
-      };
-
-      device_->CreateShaderResourceView(gpu_mesh.tan_buf.Get(), &tan_srv_desc,
-                                        CD3DX12_CPU_DESCRIPTOR_HANDLE{
-                                          res_desc_heap_cpu_start,
-                                          static_cast<INT>(gpu_mesh.
-                                            tan_buf_srv_idx),
-                                          res_desc_inc
-                                        });
+      create_buffer_srv(static_cast<UINT>(tan_count),
+                        static_cast<UINT>(tan_stride), gpu_mesh.tan_buf.Get(),
+                        gpu_mesh.tan_buf_srv_idx);
     }
 
     if (mesh_data.uvs) {
-      gpu_mesh.uv_buf.emplace();
+      auto const uv_count{mesh_data.uvs->size()};
+      auto constexpr uv_stride{sizeof(DirectX::XMFLOAT2)};
+      auto const uv_buf_size{uv_count * uv_stride};
+      std::memcpy(upload_buffer_ptr, mesh_data.uvs->data(), uv_buf_size);
 
-      auto const uv_buffer_size{
-        mesh_data.uvs->size() * sizeof(decltype(mesh_data.uvs
-        )::value_type::value_type)
-      };
-      std::memcpy(upload_buffer_ptr, mesh_data.uvs->data(), uv_buffer_size);
-
-      auto const uv_buf_desc{CD3DX12_RESOURCE_DESC1::Buffer(uv_buffer_size)};
-
-      if FAILED(
-        device_->CreateCommittedResource3(&default_heap_props,
-          D3D12_HEAP_FLAG_NONE, &uv_buf_desc, D3D12_BARRIER_LAYOUT_UNDEFINED,
-          nullptr, nullptr, 0, nullptr, IID_PPV_ARGS(&(*gpu_mesh.uv_buf)))) {
+      if (auto const exp{
+        create_buffer(uv_buf_size, gpu_mesh.uv_buf.emplace())
+      }; !exp) {
         return std::unexpected{
-          std::format("Failed to create GPU mesh uvs {}.", idx)
+          std::format("Failed to create mesh {} uv buffer: {}", idx,
+                      exp.error())
         };
       }
 
-      if (FAILED(cmd_allocs_[frame_idx_]->Reset())) {
+      create_buffer_srv(static_cast<UINT>(uv_count),
+                        static_cast<UINT>(uv_stride), gpu_mesh.uv_buf->Get(),
+                        gpu_mesh.uv_buf_srv_idx.emplace());
+    }
+
+    {
+      auto const idx_count{mesh_data.indices.size()};
+      auto constexpr idx_stride{sizeof(std::uint32_t)};
+      auto const idx_buffer_size{idx_count * idx_stride};
+      std::memcpy(upload_buffer_ptr, mesh_data.indices.data(), idx_buffer_size);
+
+      if (auto const exp{
+        create_buffer(idx_buffer_size, gpu_mesh.idx_buf)
+      }; !exp) {
         return std::unexpected{
-          "Failed to reset command allocator for mesh uv copy."
+          std::format("Failed to create mesh {} index buffer: {}", idx,
+                      exp.error())
         };
       }
 
-      if (FAILED(
-        cmd_lists_[frame_idx_]->Reset(cmd_allocs_[frame_idx_].Get(), nullptr
-        ))) {
-        return std::unexpected{
-          "Failed to reset command list for mesh uv copy."
-        };
-      }
-
-      cmd_lists_[frame_idx_]->CopyBufferRegion(gpu_mesh.uv_buf->Get(), 0,
-                                               upload_buffer.Get(), 0,
-                                               uv_buffer_size);
-
-      if (FAILED(cmd_lists_[frame_idx_]->Close())) {
-        return std::unexpected{
-          "Failed to close command list for mesh uv copy."
-        };
-      }
-
-      direct_queue_->ExecuteCommandLists(
-        1, CommandListCast(cmd_lists_[frame_idx_].GetAddressOf()));
-
-      ++upload_fence_val;
-      if (FAILED(direct_queue_->Signal(upload_fence.Get(), upload_fence_val))) {
-        return std::unexpected{"Failed to signal upload fence."};
-      }
-
-      if (FAILED(
-        upload_fence->SetEventOnCompletion(upload_fence_val, nullptr))) {
-        return std::unexpected{"Failed to wait for upload fence."};
-      }
-
-      gpu_mesh.uv_buf_srv_idx = AllocateResourceDescriptorIndex();
-
-      D3D12_SHADER_RESOURCE_VIEW_DESC const uv_srv_desc{
-        .Format = DXGI_FORMAT_UNKNOWN,
-        .ViewDimension = D3D12_SRV_DIMENSION_BUFFER,
-        .Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
-        .Buffer = {
-          0, static_cast<UINT>(mesh_data.uvs->size()),
-          sizeof(decltype(mesh_data.uvs)::value_type::value_type),
-          D3D12_BUFFER_SRV_FLAG_NONE
-        }
-      };
-
-      device_->CreateShaderResourceView(gpu_mesh.uv_buf->Get(), &uv_srv_desc,
-                                        CD3DX12_CPU_DESCRIPTOR_HANDLE{
-                                          res_desc_heap_cpu_start,
-                                          static_cast<INT>(*gpu_mesh.
-                                            uv_buf_srv_idx),
-                                          res_desc_inc
-                                        });
+      gpu_mesh.ibv.Format = DXGI_FORMAT_R32_UINT;
+      gpu_mesh.ibv.BufferLocation = gpu_mesh.idx_buf->GetGPUVirtualAddress();
+      gpu_mesh.ibv.SizeInBytes = static_cast<UINT>(idx_buffer_size);
+      gpu_mesh.index_count = static_cast<UINT>(idx_count);
     }
-
-    auto const idx_buffer_size{
-      mesh_data.indices.size() * sizeof(decltype(mesh_data.indices)::value_type)
-    };
-    std::memcpy(upload_buffer_ptr, mesh_data.indices.data(), idx_buffer_size);
-
-    auto const idx_buf_desc{CD3DX12_RESOURCE_DESC1::Buffer(idx_buffer_size)};
-
-    if FAILED(
-      device_->CreateCommittedResource3(&default_heap_props,
-        D3D12_HEAP_FLAG_NONE, &idx_buf_desc, D3D12_BARRIER_LAYOUT_UNDEFINED,
-        nullptr, nullptr, 0, nullptr, IID_PPV_ARGS(&gpu_mesh.idx_buf))) {
-      return std::unexpected{
-        std::format("Failed to create GPU mesh indices {}.", idx)
-      };
-    }
-
-    if (FAILED(cmd_allocs_[frame_idx_]->Reset())) {
-      return std::unexpected{
-        "Failed to reset command allocator for mesh index copy."
-      };
-    }
-
-    if (FAILED(
-      cmd_lists_[frame_idx_]->Reset(cmd_allocs_[frame_idx_].Get(), nullptr))) {
-      return std::unexpected{
-        "Failed to reset command list for mesh index copy."
-      };
-    }
-
-    cmd_lists_[frame_idx_]->CopyBufferRegion(gpu_mesh.idx_buf.Get(), 0,
-                                             upload_buffer.Get(), 0,
-                                             idx_buffer_size);
-
-    if (FAILED(cmd_lists_[frame_idx_]->Close())) {
-      return std::unexpected{
-        "Failed to close command list for mesh index copy."
-      };
-    }
-
-    direct_queue_->ExecuteCommandLists(
-      1, CommandListCast(cmd_lists_[frame_idx_].GetAddressOf()));
-
-    ++upload_fence_val;
-    if (FAILED(direct_queue_->Signal(upload_fence.Get(), upload_fence_val))) {
-      return std::unexpected{"Failed to signal upload fence."};
-    }
-
-    if (FAILED(upload_fence->SetEventOnCompletion(upload_fence_val, nullptr))) {
-      return std::unexpected{"Failed to wait for upload fence."};
-    }
-
-    gpu_mesh.ibv.Format = DXGI_FORMAT_R32_UINT;
-    gpu_mesh.ibv.BufferLocation = gpu_mesh.idx_buf->GetGPUVirtualAddress();
-    gpu_mesh.ibv.SizeInBytes = static_cast<UINT>(idx_buffer_size);
 
     gpu_mesh.mtl_idx = mesh_data.material_idx;
-    gpu_mesh.index_count = static_cast<UINT>(mesh_data.indices.size());
   }
 
   for (auto const& [idx, node_data] : std::ranges::views::enumerate(
          scene_data.nodes)) {
     auto& gpu_node{
-      gpu_scene.nodes.emplace_back(node_data.mesh_indices, node_data.transform)
+      gpu_scene.nodes.emplace_back(node_data.mesh_indices,
+                                   DirectX::XMFLOAT4X4{
+                                     node_data.transform.data()
+                                   })
     };
 
     auto const draw_data_buf_desc{

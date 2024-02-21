@@ -46,8 +46,7 @@ auto LoadScene(
   for (unsigned i{0}; i < scene->mNumMaterials; i++) {
     auto const mtl{scene->mMaterials[i]};
     auto& mtl_data = scene_data.materials.emplace_back(
-      DirectX::XMFLOAT3{1.0f, 1.0f, 1.0f}, 0.0f, 0.0f,
-      DirectX::XMFLOAT3{0.0f, 0.0f, 0.0f});
+      Float3{1.0f, 1.0f, 1.0f}, 0.0f, 0.0f, Float3{0.0f, 0.0f, 0.0f});
 
     if (aiColor3D base_color; mtl->Get(AI_MATKEY_BASE_COLOR, base_color) ==
       aiReturn_SUCCESS) {
@@ -170,18 +169,16 @@ auto LoadScene(
       };
     }
 
-    std::vector<DirectX::XMFLOAT4> positions;
+    std::vector<Float3> positions;
     positions.reserve(mesh->mNumVertices);
     std::ranges::transform(mesh->mVertices,
                            mesh->mVertices + mesh->mNumVertices,
                            std::back_inserter(positions),
                            [](aiVector3D const& pos) {
-                             return DirectX::XMFLOAT4{
-                               pos.x, pos.y, pos.z, 1.0f
-                             };
+                             return Float3{pos.x, pos.y, pos.z};
                            });
 
-    std::optional<std::vector<DirectX::XMFLOAT2>> uvs;
+    std::optional<std::vector<Float2>> uvs;
 
     if (mesh->HasTextureCoords(0)) {
       uvs.emplace();
@@ -190,7 +187,7 @@ auto LoadScene(
                              mesh->mTextureCoords[0] + mesh->mNumVertices,
                              std::back_inserter(*uvs),
                              [](aiVector3D const& uv) {
-                               return DirectX::XMFLOAT2{uv.x, uv.y};
+                               return Float2{uv.x, uv.y};
                              });
     }
 
@@ -200,14 +197,12 @@ auto LoadScene(
       };
     }
 
-    std::vector<DirectX::XMFLOAT4> normals;
+    std::vector<Float3> normals;
     normals.reserve(mesh->mNumVertices);
     std::ranges::transform(mesh->mNormals, mesh->mNormals + mesh->mNumVertices,
                            std::back_inserter(normals),
                            [](aiVector3D const& normal) {
-                             return DirectX::XMFLOAT4{
-                               normal.x, normal.y, normal.z, 0.0f
-                             };
+                             return Float3{normal.x, normal.y, normal.z};
                            });
 
     if (!mesh->HasTangentsAndBitangents()) {
@@ -215,15 +210,13 @@ auto LoadScene(
         std::format("Mesh {} contains no vertex tangents.", mesh->mName.C_Str())
       };
     }
-    std::vector<DirectX::XMFLOAT4> tangents;
+    std::vector<Float3> tangents;
     tangents.reserve(mesh->mNumVertices);
     std::ranges::transform(mesh->mTangents,
                            mesh->mTangents + mesh->mNumVertices,
                            std::back_inserter(tangents),
                            [](aiVector3D const& tangent) {
-                             return DirectX::XMFLOAT4{
-                               tangent.x, tangent.y, tangent.z, 0.0f
-                             };
+                             return Float3{tangent.x, tangent.y, tangent.z};
                            });
 
     if (!mesh->HasFaces()) {
@@ -261,7 +254,7 @@ auto LoadScene(
     std::ranges::copy_n(node->mMeshes, node->mNumMeshes,
                         std::back_inserter(mesh_indices));
 
-    scene_data.nodes.emplace_back(std::move(mesh_indices), DirectX::XMFLOAT4X4{
+    scene_data.nodes.emplace_back(std::move(mesh_indices), Float4X4{
                                     node_global_transform.a1,
                                     node_global_transform.b1,
                                     node_global_transform.c1,

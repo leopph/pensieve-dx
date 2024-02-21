@@ -1,13 +1,16 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <vector>
 
-#include <DirectXMath.h>
-
 namespace pensieve {
+using Float2 = std::array<float, 2>;
+using Float3 = std::array<float, 3>;
+using Float4X4 = std::array<float, 16>;
+
 struct TextureData {
   unsigned width;
   unsigned height;
@@ -15,10 +18,10 @@ struct TextureData {
 };
 
 struct MaterialData {
-  DirectX::XMFLOAT3 base_color;
+  Float3 base_color;
   float metallic;
   float roughness;
-  DirectX::XMFLOAT3 emission_color;
+  Float3 emission_color;
   std::optional<unsigned> base_color_map_idx;
   std::optional<unsigned> metallic_map_idx;
   std::optional<unsigned> roughness_map_idx;
@@ -27,17 +30,17 @@ struct MaterialData {
 };
 
 struct MeshData {
-  std::vector<DirectX::XMFLOAT4> positions;
-  std::vector<DirectX::XMFLOAT4> normals;
-  std::vector<DirectX::XMFLOAT4> tangents;
+  std::vector<Float3> positions;
+  std::vector<Float3> normals;
+  std::vector<Float3> tangents;
   std::vector<std::uint32_t> indices;
-  std::optional<std::vector<DirectX::XMFLOAT2>> uvs;
+  std::optional<std::vector<Float2>> uvs;
   unsigned material_idx;
 };
 
 struct NodeData {
   std::vector<unsigned> mesh_indices;
-  DirectX::XMFLOAT4X4 transform;
+  Float4X4 transform;
 };
 
 struct SceneData {
