@@ -1,277 +1,421 @@
 #include "scene_loading.hpp"
 
-#include <algorithm>
+#include <array>
+#include <complex.h>
+#include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <format>
-#include <iterator>
-#include <stack>
-#include <unordered_map>
-#include <utility>
-
-#include <assimp/Importer.hpp>
-#include <assimp/postprocess.h>
-#include <assimp/scene.h>
-
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
+#include <fstream>
+#include <memory>
 
 namespace pensieve {
 auto LoadScene(
   std::filesystem::path const& path) -> std::expected<SceneData, std::string> {
-  Assimp::Importer importer;
-  importer.SetPropertyInteger(
-    AI_CONFIG_PP_RVC_FLAGS,
-    aiComponent_COLORS | aiComponent_BONEWEIGHTS | aiComponent_ANIMATIONS |
-    aiComponent_LIGHTS | aiComponent_CAMERAS);
-  importer.SetPropertyInteger(
-    AI_CONFIG_PP_SBP_REMOVE, aiPrimitiveType_POINT | aiPrimitiveType_LINE);
-  auto const scene{
-    importer.ReadFile(path.string().c_str(),
-                      aiProcess_CalcTangentSpace |
-                      aiProcess_JoinIdenticalVertices | aiProcess_Triangulate |
-                      aiProcess_RemoveComponent | aiProcess_GenNormals |
-                      aiProcess_SortByPType | aiProcess_GenUVCoords |
-                      aiProcess_GlobalScale | aiProcess_ConvertToLeftHanded)
-  };
+  std::ifstream in{path, std::ios::binary | std::ios::in};
 
-  if (!scene) {
-    return std::unexpected{importer.GetErrorString()};
+  if (!in.is_open()) {
+    return std::unexpected{
+      std::format("Failed to open file {}.", path.string())
+    };
   }
-
-  std::unordered_map<std::string, unsigned> tex_paths_to_idx;
 
   SceneData scene_data;
 
-  scene_data.materials.reserve(scene->mNumMaterials);
-  for (unsigned i{0}; i < scene->mNumMaterials; i++) {
-    auto const mtl{scene->mMaterials[i]};
-    auto& mtl_data = scene_data.materials.emplace_back(
-      Float3{1.0f, 1.0f, 1.0f}, 0.0f, 0.0f, Float3{0.0f, 0.0f, 0.0f});
+  auto constexpr header_length{9};
+  std::array<char, header_length> header;
+  in.read(header.data(), header_length);
 
-    if (aiColor3D base_color; mtl->Get(AI_MATKEY_BASE_COLOR, base_color) ==
-      aiReturn_SUCCESS) {
-      mtl_data.base_color = {base_color.r, base_color.g, base_color.b};
+  if (in.gcount() != header_length) {
+    return std::unexpected{"Failed to read file header."};
+  }
+
+  if (std::strcmp(header.data(), "pensieve") != 0) {
+    return std::unexpected{"File header mismatch."};
+  }
+
+  std::size_t texture_count;
+  in.read(std::bit_cast<char*>(&texture_count), sizeof(texture_count));
+
+  if (in.gcount() != sizeof(texture_count)) {
+    return std::unexpected{"Failed to read texture count."};
+  }
+
+  scene_data.textures.reserve(texture_count);
+
+  for (std::size_t i{0}; i < texture_count; i++) {
+    auto& [width, height, bytes]{scene_data.textures.emplace_back()};
+
+    in.read(std::bit_cast<char*>(&width), sizeof(width));
+
+    if (in.gcount() != sizeof(width)) {
+      return std::unexpected{
+        std::format("Failed to read width of texture {}.", i)
+      };
     }
 
-    if (float metallic; mtl->Get(AI_MATKEY_METALLIC_FACTOR, metallic) ==
-      aiReturn_SUCCESS) {
-      mtl_data.metallic = metallic;
+    in.read(std::bit_cast<char*>(&height), sizeof(height));
+
+    if (in.gcount() != sizeof(height)) {
+      return std::unexpected{
+        std::format("Failed to read height of texture {}.", i)
+      };
     }
 
-    if (float roughness; mtl->Get(AI_MATKEY_ROUGHNESS_FACTOR, roughness) ==
-      aiReturn_SUCCESS) {
-      mtl_data.roughness = roughness;
-    }
+    auto const byte_count{4 * width * height};
+    bytes = std::make_unique_for_overwrite<std::uint8_t[]>(byte_count);
+    in.read(std::bit_cast<char*>(bytes.get()), byte_count);
 
-    if (aiColor3D emission; mtl->Get(AI_MATKEY_COLOR_EMISSIVE, emission) ==
-      aiReturn_SUCCESS) {
-      mtl_data.emission_color = {emission.r, emission.g, emission.b};
-    }
-
-    if (aiString tex_path; mtl->GetTexture(
-      AI_MATKEY_BASE_COLOR_TEXTURE, &tex_path) == aiReturn_SUCCESS) {
-      mtl_data.base_color_map_idx = tex_paths_to_idx.try_emplace(
-        tex_path.C_Str(),
-        static_cast<unsigned>(tex_paths_to_idx.size())).first->second;
-    }
-
-    if (aiString tex_path; mtl->GetTexture(
-      AI_MATKEY_METALLIC_TEXTURE, &tex_path) == aiReturn_SUCCESS) {
-      mtl_data.metallic_map_idx = tex_paths_to_idx.try_emplace(
-        tex_path.C_Str(),
-        static_cast<unsigned>(tex_paths_to_idx.size())).first->second;
-    }
-
-    if (aiString tex_path; mtl->GetTexture(
-      AI_MATKEY_ROUGHNESS_TEXTURE, &tex_path) == aiReturn_SUCCESS) {
-      mtl_data.roughness_map_idx = tex_paths_to_idx.try_emplace(
-        tex_path.C_Str(),
-        static_cast<unsigned>(tex_paths_to_idx.size())).first->second;
-    }
-
-    if (aiString tex_path; mtl->GetTexture(aiTextureType_EMISSIVE, 0, &tex_path)
-      == aiReturn_SUCCESS) {
-      mtl_data.emission_map_idx = tex_paths_to_idx.try_emplace(
-        tex_path.C_Str(),
-        static_cast<unsigned>(tex_paths_to_idx.size())).first->second;
-    }
-
-    if (aiString tex_path; mtl->GetTexture(aiTextureType_NORMALS, 0, &tex_path)
-      == aiReturn_SUCCESS) {
-      mtl_data.normal_map_idx = tex_paths_to_idx.try_emplace(
-        tex_path.C_Str(),
-        static_cast<unsigned>(tex_paths_to_idx.size())).first->second;
+    if (in.gcount() != byte_count) {
+      return std::unexpected{
+        std::format("Failed to read texels of texture {}.", i)
+      };
     }
   }
 
-  for (auto const& tex_path : tex_paths_to_idx | std::views::keys) {
-    if (auto const tex{scene->GetEmbeddedTexture(tex_path.c_str())}) {
-      if (tex->mHeight == 0) {
-        int width;
-        int height;
-        int channels;
-        auto const bytes{
-          stbi_load_from_memory(std::bit_cast<std::uint8_t*>(tex->pcData),
-                                tex->mWidth, &width, &height, &channels, 4)
-        };
+  std::size_t material_count;
+  in.read(std::bit_cast<char*>(&material_count), sizeof(material_count));
 
-        if (!bytes) {
-          return std::unexpected{
-            std::format("Failed to load compressed embedded texture \"{}\".",
-                        tex_path.c_str())
-          };
-        }
+  if (in.gcount() != sizeof(material_count)) {
+    return std::unexpected{"Failed to read material count."};
+  }
 
-        scene_data.textures.emplace_back(static_cast<unsigned>(width),
-                                         static_cast<unsigned>(height),
-                                         std::unique_ptr<std::uint8_t[]>{
-                                           bytes
-                                         });
-      } else {
-        auto& tex_data{
-          scene_data.textures.emplace_back(tex->mWidth, tex->mHeight,
-                                           std::make_unique_for_overwrite<
-                                             std::uint8_t []>(
-                                             tex->mWidth * tex->mHeight * 4))
-        };
-        std::memcpy(tex_data.bytes.get(), tex->pcData,
-                    tex->mWidth * tex->mHeight * 4);
-      }
-    } else {
-      auto const tex_path_abs{path.parent_path() / tex_path.c_str()};
+  scene_data.materials.reserve(material_count);
 
-      int width;
-      int height;
-      int channels;
-      auto const bytes{
-        stbi_load(tex_path_abs.string().c_str(), &width, &height, &channels, 4)
+  for (std::size_t i{0}; i < material_count; i++) {
+    auto& [base_color, metallic, roughness, emission_color, base_color_map_idx,
+      metallic_map_idx, roughness_map_idx, emission_map_idx, normal_map_idx]{
+      scene_data.materials.emplace_back()
+    };
+
+    in.read(std::bit_cast<char*>(&base_color), sizeof(base_color));
+
+    if (in.gcount() != sizeof(base_color)) {
+      return std::unexpected{
+        std::format("Failed to read material {} base color.", i)
       };
+    }
 
-      if (!bytes) {
+    in.read(std::bit_cast<char*>(&metallic), sizeof(metallic));
+
+    if (in.gcount() != sizeof(metallic)) {
+      return std::unexpected{
+        std::format("Failed to read material {} metallic factor.", i)
+      };
+    }
+
+    in.read(std::bit_cast<char*>(&roughness), sizeof(roughness));
+
+    if (in.gcount() != sizeof(roughness)) {
+      return std::unexpected{
+        std::format("Failed to read material {} roughness factor.", i)
+      };
+    }
+
+    in.read(std::bit_cast<char*>(&emission_color), sizeof(emission_color));
+
+    if (in.gcount() != sizeof(emission_color)) {
+      return std::unexpected{
+        std::format("Failed to read material {} emission color.", i)
+      };
+    }
+
+    int has_base_color_map;
+    in.read(std::bit_cast<char*>(&has_base_color_map),
+            sizeof(has_base_color_map));
+
+    if (in.gcount() != sizeof(has_base_color_map)) {
+      return std::unexpected{
+        std::format("Failed to read material {} base color map availability.",
+                    i)
+      };
+    }
+
+    if (has_base_color_map) {
+      in.read(std::bit_cast<char*>(&base_color_map_idx.emplace()),
+              sizeof(decltype(base_color_map_idx)::value_type));
+
+      if (in.gcount() != sizeof(*base_color_map_idx)) {
         return std::unexpected{
-          std::format("Failed to load texture at {}.", tex_path.c_str())
+          std::format("Failed to read material {} base color map index.", i)
         };
       }
+    }
 
-      scene_data.textures.emplace_back(static_cast<unsigned>(width),
-                                       static_cast<unsigned>(height),
-                                       std::unique_ptr<std::uint8_t[]>{bytes});
+    int has_metallic_map;
+    in.read(std::bit_cast<char*>(&has_metallic_map), sizeof(has_metallic_map));
+
+    if (in.gcount() != sizeof(has_metallic_map)) {
+      return std::unexpected{
+        std::format("Failed to read material {} metallic map availability.", i)
+      };
+    }
+
+    if (has_metallic_map) {
+      in.read(std::bit_cast<char*>(&metallic_map_idx.emplace()),
+              sizeof(decltype(metallic_map_idx)::value_type));
+
+      if (in.gcount() != sizeof(*metallic_map_idx)) {
+        return std::unexpected{
+          std::format("Failed to read material {} metallic map index.", i)
+        };
+      }
+    }
+
+    int has_roughness_map;
+    in.read(std::bit_cast<char*>(&has_roughness_map),
+            sizeof(has_roughness_map));
+
+    if (in.gcount() != sizeof(has_roughness_map)) {
+      return std::unexpected{
+        std::format("Failed to read material {} roughness map availability.", i)
+      };
+    }
+
+    if (has_roughness_map) {
+      in.read(std::bit_cast<char*>(&roughness_map_idx.emplace()),
+              sizeof(decltype(roughness_map_idx)::value_type));
+
+      if (in.gcount() != sizeof(*roughness_map_idx)) {
+        return std::unexpected{
+          std::format("Failed to read material {} roughness map index.", i)
+        };
+      }
+    }
+
+    int has_emission_map;
+    in.read(std::bit_cast<char*>(&has_emission_map), sizeof(has_emission_map));
+
+    if (in.gcount() != sizeof(has_emission_map)) {
+      return std::unexpected{
+        std::format("Failed to read material {} emission map availability.", i)
+      };
+    }
+
+    if (has_emission_map) {
+      in.read(std::bit_cast<char*>(&emission_map_idx.emplace()),
+              sizeof(decltype(emission_map_idx)));
+
+      if (in.gcount() != sizeof(*emission_map_idx)) {
+        return std::unexpected{
+          std::format("Failed to read material {} emission map index.", i)
+        };
+      }
+    }
+
+    int has_normal_map;
+    in.read(std::bit_cast<char*>(&has_normal_map), sizeof(has_normal_map));
+
+    if (in.gcount() != sizeof(has_normal_map)) {
+      return std::unexpected{
+        std::format("Failed to read material {} normal map availability.", i)
+      };
+    }
+
+    if (has_normal_map) {
+      in.read(std::bit_cast<char*>(&normal_map_idx.emplace()),
+              sizeof(decltype(normal_map_idx)::value_type));
+
+      if (in.gcount() != sizeof(*normal_map_idx)) {
+        return std::unexpected{
+          std::format("Failed to read material {} normal map index.", i)
+        };
+      }
     }
   }
 
-  for (unsigned i{0}; i < scene->mNumMeshes; i++) {
-    auto const mesh{scene->mMeshes[i]};
+  std::size_t mesh_count;
+  in.read(std::bit_cast<char*>(&mesh_count), sizeof(mesh_count));
 
-    if (!mesh->HasPositions()) {
-      return std::unexpected{
-        std::format("Mesh {} contains no vertex positions.",
-                    mesh->mName.C_Str())
-      };
-    }
-
-    std::vector<Float3> positions;
-    positions.reserve(mesh->mNumVertices);
-    std::ranges::transform(mesh->mVertices,
-                           mesh->mVertices + mesh->mNumVertices,
-                           std::back_inserter(positions),
-                           [](aiVector3D const& pos) {
-                             return Float3{pos.x, pos.y, pos.z};
-                           });
-
-    std::optional<std::vector<Float2>> uvs;
-
-    if (mesh->HasTextureCoords(0)) {
-      uvs.emplace();
-      uvs->reserve(mesh->mNumVertices);
-      std::ranges::transform(mesh->mTextureCoords[0],
-                             mesh->mTextureCoords[0] + mesh->mNumVertices,
-                             std::back_inserter(*uvs),
-                             [](aiVector3D const& uv) {
-                               return Float2{uv.x, uv.y};
-                             });
-    }
-
-    if (!mesh->HasNormals()) {
-      return std::unexpected{
-        std::format("Mesh {} contains no vertex normals.", mesh->mName.C_Str())
-      };
-    }
-
-    std::vector<Float3> normals;
-    normals.reserve(mesh->mNumVertices);
-    std::ranges::transform(mesh->mNormals, mesh->mNormals + mesh->mNumVertices,
-                           std::back_inserter(normals),
-                           [](aiVector3D const& normal) {
-                             return Float3{normal.x, normal.y, normal.z};
-                           });
-
-    if (!mesh->HasTangentsAndBitangents()) {
-      return std::unexpected{
-        std::format("Mesh {} contains no vertex tangents.", mesh->mName.C_Str())
-      };
-    }
-    std::vector<Float3> tangents;
-    tangents.reserve(mesh->mNumVertices);
-    std::ranges::transform(mesh->mTangents,
-                           mesh->mTangents + mesh->mNumVertices,
-                           std::back_inserter(tangents),
-                           [](aiVector3D const& tangent) {
-                             return Float3{tangent.x, tangent.y, tangent.z};
-                           });
-
-    if (!mesh->HasFaces()) {
-      return std::unexpected{
-        std::format("Mesh {} contains no vertex indices.", mesh->mName.C_Str())
-      };
-    }
-
-    std::vector<std::uint32_t> indices;
-    indices.reserve(mesh->mNumFaces * 3);
-    for (unsigned j{0}; j < mesh->mNumFaces; j++) {
-      std::ranges::copy_n(mesh->mFaces[j].mIndices, mesh->mFaces[j].mNumIndices,
-                          std::back_inserter(indices));
-    }
-
-    scene_data.meshes.emplace_back(std::move(positions), std::move(normals),
-                                   std::move(tangents), std::move(indices),
-                                   std::move(uvs), mesh->mMaterialIndex);
+  if (in.gcount() != sizeof(mesh_count)) {
+    return std::unexpected{"Failed to read mesh count."};
   }
 
-  std::stack<std::pair<aiNode const*, aiMatrix4x4>> nodes;
-  nodes.emplace(scene->mRootNode, aiMatrix4x4{});
+  scene_data.meshes.reserve(mesh_count);
 
-  while (!nodes.empty()) {
-    auto const [node, parent_transform]{nodes.top()};
-    nodes.pop();
-    auto const node_global_transform{node->mTransformation * parent_transform};
+  for (std::size_t i{0}; i < mesh_count; i++) {
+    auto& [positions, normals, tangents, uvs, meshlets, vertex_indices,
+      triangle_indices, material_idx]{scene_data.meshes.emplace_back()};
 
-    for (unsigned i{0}; i < node->mNumChildren; i++) {
-      nodes.emplace(node->mChildren[i], node_global_transform);
+    std::size_t vertex_count;
+    in.read(std::bit_cast<char*>(&vertex_count), sizeof(vertex_count));
+
+    if (in.gcount() != sizeof(vertex_count)) {
+      return std::unexpected{
+        std::format("Failed to read mesh {} vertex count.", i)
+      };
     }
 
-    std::vector<unsigned> mesh_indices;
-    mesh_indices.reserve(node->mNumMeshes);
-    std::ranges::copy_n(node->mMeshes, node->mNumMeshes,
-                        std::back_inserter(mesh_indices));
+    positions.resize(vertex_count);
+    auto const pos_buf_byte_size{
+      static_cast<std::streamsize>(vertex_count * sizeof(Float4))
+    };
+    in.read(std::bit_cast<char*>(positions.data()), pos_buf_byte_size);
 
-    scene_data.nodes.emplace_back(std::move(mesh_indices), Float4X4{
-                                    node_global_transform.a1,
-                                    node_global_transform.b1,
-                                    node_global_transform.c1,
-                                    node_global_transform.d1,
-                                    node_global_transform.a2,
-                                    node_global_transform.b2,
-                                    node_global_transform.c2,
-                                    node_global_transform.d2,
-                                    node_global_transform.a3,
-                                    node_global_transform.b3,
-                                    node_global_transform.c3,
-                                    node_global_transform.d3,
-                                    node_global_transform.a4,
-                                    node_global_transform.b4,
-                                    node_global_transform.c4,
-                                    node_global_transform.d4,
-                                  });
+    if (in.gcount() != pos_buf_byte_size) {
+      return std::unexpected{
+        std::format("Failed to read mesh {} positions.", i)
+      };
+    }
+
+    normals.resize(vertex_count);
+    auto const norm_buf_byte_size{
+      static_cast<std::streamsize>(vertex_count * sizeof(Float4))
+    };
+    in.read(std::bit_cast<char*>(normals.data()), norm_buf_byte_size);
+
+    if (in.gcount() != norm_buf_byte_size) {
+      return std::unexpected{std::format("Failed to read mesh {} normals.", i)};
+    }
+
+    tangents.resize(vertex_count);
+    auto const tan_buf_byte_size{
+      static_cast<std::streamsize>(vertex_count * sizeof(Float4))
+    };
+    in.read(std::bit_cast<char*>(tangents.data()), tan_buf_byte_size);
+
+    if (in.gcount() != tan_buf_byte_size) {
+      return std::unexpected{
+        std::format("Failed to read mesh {} tangents.", i)
+      };
+    }
+
+    int has_uvs;
+    in.read(std::bit_cast<char*>(&has_uvs), sizeof(has_uvs));
+
+    if (in.gcount() != sizeof(has_uvs)) {
+      return std::unexpected{
+        std::format("Failed to read mesh {} uv availability.", i)
+      };
+    }
+
+    if (has_uvs) {
+      uvs.emplace().resize(vertex_count);
+      auto const uv_buf_byte_size{
+        static_cast<std::streamsize>(vertex_count * sizeof(Float2))
+      };
+      in.read(std::bit_cast<char*>(uvs->data()), uv_buf_byte_size);
+
+      if (in.gcount() != uv_buf_byte_size) {
+        return std::unexpected{std::format("Failed to read mesh {} uvs.", i)};
+      }
+    }
+
+    std::size_t meshlet_count;
+    in.read(std::bit_cast<char*>(&meshlet_count), sizeof(meshlet_count));
+
+    if (in.gcount() != sizeof(meshlet_count)) {
+      return std::unexpected{
+        std::format("Failed to read mesh {} meshlet count.", i)
+      };
+    }
+
+    meshlets.resize(meshlet_count);
+    auto const meshlet_buf_size{
+      static_cast<std::streamsize>(meshlet_count * sizeof(MeshletData))
+    };
+    in.read(std::bit_cast<char*>(meshlets.data()), meshlet_buf_size);
+
+    if (in.gcount() != meshlet_buf_size) {
+      return std::unexpected{
+        std::format("Failed to read mesh {} meshlets.", i)
+      };
+    }
+
+    std::size_t vertex_index_count;
+    in.read(std::bit_cast<char*>(&vertex_index_count),
+            sizeof(vertex_index_count));
+
+    if (in.gcount() != sizeof(vertex_index_count)) {
+      return std::unexpected{
+        std::format("Failed to read mesh {} vertex index count.", i)
+      };
+    }
+
+    vertex_indices.resize(vertex_index_count);
+    auto const vert_ind_buf_size{
+      static_cast<std::streamsize>(vertex_index_count * sizeof(std::uint8_t))
+    };
+    in.read(std::bit_cast<char*>(vertex_indices.data()), vert_ind_buf_size);
+
+    if (in.gcount() != vert_ind_buf_size) {
+      return std::unexpected{
+        std::format("Failed to read mesh {} vertex indices.", i)
+      };
+    }
+
+    std::size_t triangle_index_count;
+    in.read(std::bit_cast<char*>(&triangle_index_count),
+            sizeof(triangle_index_count));
+
+    if (in.gcount() != sizeof(triangle_index_count)) {
+      return std::unexpected{
+        std::format("Failed to read mesh {} triangle index count.", i)
+      };
+    }
+
+    triangle_indices.resize(triangle_index_count);
+    auto const tri_ind_buf_size{
+      static_cast<std::streamsize>(triangle_index_count * sizeof(
+        MeshletTriangleIndexData))
+    };
+    in.read(std::bit_cast<char*>(triangle_indices.data()), tri_ind_buf_size);
+
+    if (in.gcount() != tri_ind_buf_size) {
+      return std::unexpected{
+        std::format("Failed to read mesh {} triangle indices.", i)
+      };
+    }
+
+    in.read(std::bit_cast<char*>(&material_idx), sizeof(material_idx));
+
+    if (in.gcount() != sizeof(material_idx)) {
+      return std::unexpected{
+        std::format("Failed to read mesh {} material index.", i)
+      };
+    }
+  }
+
+  std::size_t node_count;
+  in.read(std::bit_cast<char*>(&node_count), sizeof(node_count));
+
+  if (in.gcount() != sizeof(node_count)) {
+    return std::unexpected{"Failed to read node count."};
+  }
+
+  scene_data.nodes.reserve(node_count);
+
+  for (std::size_t i{0}; i < node_count; i++) {
+    auto& [mesh_indices, transform]{scene_data.nodes.emplace_back()};
+
+    std::size_t mesh_idx_count;
+    in.read(std::bit_cast<char*>(&mesh_idx_count), sizeof(mesh_idx_count));
+
+    if (in.gcount() != sizeof(mesh_idx_count)) {
+      return std::unexpected{
+        std::format("Failed to read node {} mesh index count.", i)
+      };
+    }
+
+    mesh_indices.resize(mesh_idx_count);
+    auto const mesh_idx_buf_size{
+      static_cast<std::streamsize>(mesh_idx_count * sizeof(unsigned))
+    };
+    in.read(std::bit_cast<char*>(mesh_indices.data()), mesh_idx_buf_size);
+
+    if (in.gcount() != mesh_idx_buf_size) {
+      return std::unexpected{
+        std::format("Failed to read node {} mesh indices.", i)
+      };
+    }
+
+    in.read(std::bit_cast<char*>(&transform), sizeof(transform));
+
+    if (in.gcount() != sizeof(transform)) {
+      return std::unexpected{
+        std::format("Failed to read node {} transform.", i)
+      };
+    }
   }
 
   return scene_data;

@@ -9,9 +9,9 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <span>
 #include <stack>
 #include <string>
-#include <string_view>
 #include <unordered_map>
 #include <utility>
 
@@ -358,7 +358,7 @@ auto main(int const argc, char** const argv) -> int {
     return EXIT_FAILURE;
   }
 
-  std::string_view constexpr header{"pensieve"};
+  std::span constexpr header{"pensieve"};
   out.write(header.data(), header.size());
 
   auto const texture_count{scene->textures.size()};
@@ -465,7 +465,6 @@ auto main(int const argc, char** const argv) -> int {
               vertex_index_count * sizeof(decltype(mesh.vertex_indices
               )::value_type));
 
-
     auto const triangle_index_count{mesh.triangle_indices.size()};
     out.write(std::bit_cast<char const*>(&triangle_index_count),
               sizeof(triangle_index_count));
@@ -484,6 +483,9 @@ auto main(int const argc, char** const argv) -> int {
     auto const mesh_index_count{node.mesh_indices.size()};
     out.write(std::bit_cast<char const*>(&mesh_index_count),
               sizeof(mesh_index_count));
+    out.write(std::bit_cast<char const*>(node.mesh_indices.data()),
+              mesh_index_count * sizeof(decltype(node.mesh_indices
+              )::value_type));
     out.write(std::bit_cast<char const*>(&node.transform),
               sizeof(node.transform));
   }

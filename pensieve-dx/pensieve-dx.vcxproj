@@ -44,9 +44,7 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
-  <PropertyGroup Label="Vcpkg">
-    <VcpkgEnableManifest>true</VcpkgEnableManifest>
-  </PropertyGroup>
+  <PropertyGroup Label="Vcpkg" />
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <WarningLevel>Level4</WarningLevel>
@@ -100,14 +98,12 @@
     <None Include="src\shaders\material.hlsli" />
     <None Include="src\shaders\meshlet.hlsli" />
     <None Include="src\shaders\ps_in.hlsli" />
-    <None Include="vcpkg.json" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\Camera.hpp" />
     <ClInclude Include="src\error.hpp" />
     <ClInclude Include="src\gpu_scene.hpp" />
     <ClInclude Include="src\renderer.hpp" />
-    <ClInclude Include="src\scene_data.hpp" />
     <ClInclude Include="src\scene_loading.hpp" />
     <ClInclude Include="src\shader_interop.hpp" />
     <ClInclude Include="src\util.hpp" />
@@ -126,6 +122,11 @@
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">6.6</ShaderModel>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Release|x64'">6.6</ShaderModel>
     </FxCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\scene-format\scene-format.vcxproj">
+      <Project>{bf7c6c10-bcba-471d-9f39-0df3ba7323dd}</Project>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
