@@ -5,6 +5,10 @@ VisualStudioVersion = 17.8.34525.116
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "pensieve-dx", "pensieve-dx\pensieve-dx.vcxproj", "{FE105B30-897E-48FA-AFD6-72273F5953AA}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "meshlet-generator", "meshlet-generator\meshlet-generator.vcxproj", "{99A92C8B-48E4-4367-9087-57B4061CD3FB}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "scene-format", "scene-format\scene-format.vcxproj", "{BF7C6C10-BCBA-471D-9F39-0DF3BA7323DD}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -15,6 +19,14 @@ Global
 		{FE105B30-897E-48FA-AFD6-72273F5953AA}.Debug|x64.Build.0 = Debug|x64
 		{FE105B30-897E-48FA-AFD6-72273F5953AA}.Release|x64.ActiveCfg = Release|x64
 		{FE105B30-897E-48FA-AFD6-72273F5953AA}.Release|x64.Build.0 = Release|x64
+		{99A92C8B-48E4-4367-9087-57B4061CD3FB}.Debug|x64.ActiveCfg = Debug|x64
+		{99A92C8B-48E4-4367-9087-57B4061CD3FB}.Debug|x64.Build.0 = Debug|x64
+		{99A92C8B-48E4-4367-9087-57B4061CD3FB}.Release|x64.ActiveCfg = Release|x64
+		{99A92C8B-48E4-4367-9087-57B4061CD3FB}.Release|x64.Build.0 = Release|x64
+		{BF7C6C10-BCBA-471D-9F39-0DF3BA7323DD}.Debug|x64.ActiveCfg = Debug|x64
+		{BF7C6C10-BCBA-471D-9F39-0DF3BA7323DD}.Debug|x64.Build.0 = Debug|x64
+		{BF7C6C10-BCBA-471D-9F39-0DF3BA7323DD}.Release|x64.ActiveCfg = Release|x64
+		{BF7C6C10-BCBA-471D-9F39-0DF3BA7323DD}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
