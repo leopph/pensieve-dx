@@ -13,7 +13,6 @@
 #include <utility>
 
 #include <d3dx12.h>
-#include <DirectXMesh.h>
 
 #ifndef NDEBUG
 #include <dxgidebug.h>
@@ -648,13 +647,7 @@ auto Renderer::CreateGpuScene(
       auto constexpr pos_stride{sizeof(DirectX::XMFLOAT4)};
       auto const pos_buf_size{pos_count * pos_stride};
 
-      std::ranges::transform(mesh_data.positions,
-                             std::bit_cast<DirectX::XMFLOAT4*>(
-                               upload_buffer_ptr), [](Float3 const& pos) {
-                               return DirectX::XMFLOAT4{
-                                 pos[0], pos[1], pos[2], 1.0f
-                               };
-                             });
+      std::memcpy(upload_buffer_ptr, mesh_data.positions.data(), pos_buf_size);
 
       if (auto const exp{create_buffer(pos_buf_size, gpu_mesh.pos_buf)}; !exp) {
         return std::unexpected{
@@ -673,13 +666,7 @@ auto Renderer::CreateGpuScene(
       auto constexpr norm_stride{sizeof(DirectX::XMFLOAT4)};
       auto const norm_buf_size{norm_count * norm_stride};
 
-      std::ranges::transform(mesh_data.normals,
-                             std::bit_cast<DirectX::XMFLOAT4*>(
-                               upload_buffer_ptr), [](Float3 const& norm) {
-                               return DirectX::XMFLOAT4{
-                                 norm[0], norm[1], norm[2], 0.0f
-                               };
-                             });
+      std::memcpy(upload_buffer_ptr, mesh_data.normals.data(), norm_buf_size);
 
       if (auto const exp{
         create_buffer(norm_buf_size, gpu_mesh.norm_buf)
@@ -700,13 +687,8 @@ auto Renderer::CreateGpuScene(
       auto constexpr tan_stride{sizeof(DirectX::XMFLOAT4)};
       auto const tan_buf_size{tan_count * tan_stride};
 
-      std::ranges::transform(mesh_data.tangents,
-                             std::bit_cast<DirectX::XMFLOAT4*>(
-                               upload_buffer_ptr), [](Float3 const& tan) {
-                               return DirectX::XMFLOAT4{
-                                 tan[0], tan[1], tan[2], 0.0f
-                               };
-                             });
+      std::memcpy(upload_buffer_ptr, mesh_data.tangents.data(), tan_buf_size);
+
 
       if (auto const exp{create_buffer(tan_buf_size, gpu_mesh.tan_buf)}; !exp) {
         return std::unexpected{
@@ -741,25 +723,12 @@ auto Renderer::CreateGpuScene(
     }
 
     {
-      std::vector<DirectX::Meshlet> meshlets;
-      std::vector<std::uint8_t> unique_vertex_indices;
-      std::vector<DirectX::MeshletTriangle> primitive_indices;
-      if (FAILED(
-        ComputeMeshlets(mesh_data.indices.data(), mesh_data.indices.size() / 3,
-          std::bit_cast<DirectX::XMFLOAT3*>(mesh_data.positions.data()),
-          mesh_data.positions.size(), nullptr, meshlets, unique_vertex_indices,
-          primitive_indices))) {
-        return std::unexpected{
-          std::format("Failed to compute meshlets for mesh {}.", idx)
-        };
-      }
-
       {
-        auto const meshlet_count{meshlets.size()};
-        auto constexpr meshlet_stride{sizeof(decltype(meshlets)::value_type)};
+        auto const meshlet_count{mesh_data.meshlets.size()};
+        auto constexpr meshlet_stride{sizeof(decltype(mesh_data.meshlets)::value_type)};
         auto const meshlet_buf_size{meshlet_count * meshlet_stride};
 
-        std::memcpy(upload_buffer_ptr, meshlets.data(), meshlet_buf_size);
+        std::memcpy(upload_buffer_ptr, mesh_data.meshlets.data(), meshlet_buf_size);
 
         if (auto const exp{
           create_buffer(meshlet_buf_size, gpu_mesh.meshlet_buf)
@@ -777,11 +746,11 @@ auto Renderer::CreateGpuScene(
       }
 
       {
-        auto const vertex_idx_count{unique_vertex_indices.size() / 4};
+        auto const vertex_idx_count{mesh_data.vertex_indices.size() / 4};
         auto constexpr vertex_idx_stride{sizeof(std::uint32_t)};
         auto const vertex_idx_buf_size{vertex_idx_count * vertex_idx_stride};
 
-        std::memcpy(upload_buffer_ptr, unique_vertex_indices.data(), vertex_idx_buf_size);
+        std::memcpy(upload_buffer_ptr, mesh_data.vertex_indices.data(), vertex_idx_buf_size);
 
         if (auto const exp{
           create_buffer(vertex_idx_buf_size, gpu_mesh.vertex_idx_buf)
@@ -799,11 +768,11 @@ auto Renderer::CreateGpuScene(
       }
 
       {
-        auto const prim_idx_count{primitive_indices.size()};
-        auto constexpr prim_idx_stride{sizeof(DirectX::MeshletTriangle)};
+        auto const prim_idx_count{mesh_data.triangle_indices.size()};
+        auto constexpr prim_idx_stride{sizeof(MeshletTriangleIndexData)};
         auto const prim_idx_buf_size{prim_idx_count * prim_idx_stride};
 
-        std::memcpy(upload_buffer_ptr, primitive_indices.data(), prim_idx_buf_size);
+        std::memcpy(upload_buffer_ptr, mesh_data.triangle_indices.data(), prim_idx_buf_size);
 
         if (auto const exp{
           create_buffer(prim_idx_buf_size, gpu_mesh.prim_idx_buf)
@@ -820,7 +789,7 @@ auto Renderer::CreateGpuScene(
                           gpu_mesh.prim_idx_buf_srv_idx);
       }
 
-      gpu_mesh.meshlet_count = static_cast<UINT>(meshlets.size());
+      gpu_mesh.meshlet_count = static_cast<UINT>(mesh_data.meshlets.size());
     }
 
     gpu_mesh.mtl_idx = mesh_data.material_idx;
