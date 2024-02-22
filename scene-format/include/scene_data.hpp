@@ -13,8 +13,8 @@ using Float4 = std::array<float, 4>;
 using Float4X4 = std::array<float, 16>;
 
 struct TextureData {
-  unsigned width;
-  unsigned height;
+  std::uint32_t width;
+  std::uint32_t height;
   std::unique_ptr<std::uint8_t[]> bytes;
 };
 
@@ -23,11 +23,11 @@ struct MaterialData {
   float metallic;
   float roughness;
   Float3 emission_color;
-  std::optional<unsigned> base_color_map_idx;
-  std::optional<unsigned> metallic_map_idx;
-  std::optional<unsigned> roughness_map_idx;
-  std::optional<unsigned> emission_map_idx;
-  std::optional<unsigned> normal_map_idx;
+  std::optional<std::uint32_t> base_color_map_idx;
+  std::optional<std::uint32_t> metallic_map_idx;
+  std::optional<std::uint32_t> roughness_map_idx;
+  std::optional<std::uint32_t> emission_map_idx;
+  std::optional<std::uint32_t> normal_map_idx;
 };
 
 struct MeshletData {
@@ -51,11 +51,11 @@ struct MeshData {
   std::vector<MeshletData> meshlets;
   std::vector<std::uint8_t> vertex_indices;
   std::vector<MeshletTriangleIndexData> triangle_indices;
-  unsigned material_idx;
+  std::uint32_t material_idx;
 };
 
 struct NodeData {
-  std::vector<unsigned> mesh_indices;
+  std::vector<std::uint32_t> mesh_indices;
   Float4X4 transform;
 };
 
