@@ -1,6 +1,8 @@
 #pragma once
 
+#include <array>
 #include <expected>
+#include <span>
 #include <string>
 
 #define WIN32_LEAN_AND_MEAN
@@ -23,6 +25,11 @@ public:
   auto PollEvents() noexcept -> void;
   [[nodiscard]] auto ShouldClose() const noexcept -> bool;
   [[nodiscard]] auto WasResized() const noexcept -> bool;
+  [[nodiscard]] auto GetSize() const noexcept -> std::span<unsigned const, 2>;
+  [[nodiscard]] auto IsLmbDown() const noexcept -> bool;
+  [[nodiscard]] auto IsMouseHovered() const noexcept -> bool;
+  [[nodiscard]] auto GetMouseDelta() const noexcept -> std::span<int const, 2>;
+  [[nodiscard]] auto GetMosueWheelDelta() const noexcept -> int;
 
   [[nodiscard]] auto ToHwnd() const noexcept -> HWND;
   [[nodiscard]] auto IsValid() const noexcept -> bool;
@@ -39,5 +46,12 @@ private:
   HWND hwnd_;
   bool should_close_{false};
   bool was_resized_{false};
+
+  std::array<unsigned, 2> size_{0, 0};
+
+  bool is_lmb_down_{false};
+  bool is_mouse_hovered_{false};
+  std::array<int, 2> mouse_delta_{0, 0};
+  int mouse_wheel_delta_{0};
 };
 }

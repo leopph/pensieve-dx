@@ -6,6 +6,8 @@ namespace pensieve {
 auto Window::PollEvents() noexcept -> void {
   should_close_ = false;
   was_resized_ = false;
+  mouse_delta_ = {0, 0};
+  mouse_wheel_delta_ = 0;
 
   MSG msg;
   while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
@@ -20,6 +22,26 @@ auto Window::ShouldClose() const noexcept -> bool {
 
 auto Window::WasResized() const noexcept -> bool {
   return was_resized_;
+}
+
+auto Window::GetSize() const noexcept -> std::span<unsigned const, 2> {
+  return size_;
+}
+
+auto Window::IsLmbDown() const noexcept -> bool {
+  return is_lmb_down_;
+}
+
+auto Window::IsMouseHovered() const noexcept -> bool {
+  return is_mouse_hovered_;
+}
+
+auto Window::GetMouseDelta() const noexcept -> std::span<int const, 2> {
+  return mouse_delta_;
+}
+
+auto Window::GetMosueWheelDelta() const noexcept -> int {
+  return mouse_wheel_delta_;
 }
 
 auto Window::ToHwnd() const noexcept -> HWND {
@@ -43,14 +65,41 @@ auto Window::WindowProc(HWND const hwnd, UINT const msg, WPARAM const wparam,
   if (auto const self{
     std::bit_cast<Window*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA))
   }) {
-    if (msg == WM_CLOSE) {
+    switch (msg) {
+    case WM_CLOSE: {
       self->should_close_ = true;
       return 0;
     }
 
-    if (msg == WM_SIZE) {
+    case WM_SIZE: {
       self->was_resized_ = true;
+      self->size_[0] = LOWORD(lparam);
+      self->size_[1] = HIWORD(lparam);
       return 0;
+    }
+
+    case WM_LBUTTONDOWN: {
+      self->is_lmb_down_ = true;
+      return 0;
+    }
+
+    case WM_LBUTTONUP: {
+      self->is_lmb_down_ = false;
+      return 0;
+    }
+
+    case WM_MOUSEWHEEL: {
+      self->mouse_wheel_delta_ = GET_WHEEL_DELTA_WPARAM(wparam) / WHEEL_DELTA;
+      return 0;
+    }
+
+    case WM_MOUSEMOVE: {
+      auto const pos_x{static_cast<short>(LOWORD(lparam))};
+      auto const pos_y{static_cast<short>(HIWORD(lparam))};
+      self->is_mouse_hovered_ = pos_x >= 0 && pos_y >= 0 && pos_x < static_cast<
+        int>(self->size_[0]) && pos_y < static_cast<int>(self->size_[1]);
+      return 0;
+    }
     }
   }
 
@@ -60,6 +109,12 @@ auto Window::WindowProc(HWND const hwnd, UINT const msg, WPARAM const wparam,
 Window::Window(HWND const hwnd) :
   hwnd_{hwnd} {
   SetWindowLongPtrW(hwnd_, GWLP_USERDATA, std::bit_cast<LONG_PTR>(this));
+
+  RECT client_rect;
+  GetClientRect(hwnd_, &client_rect);
+  size_[0] = client_rect.right - client_rect.left;
+  size_[1] = client_rect.bottom - client_rect.top;
+
   ShowWindow(hwnd_, SW_SHOW);
 }
 

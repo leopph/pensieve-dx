@@ -53,6 +53,10 @@ auto main(int const argc, char* argv[]) -> int {
       }
     }
 
+    if (auto const wheel_delta{window->GetMosueWheelDelta()}; window->IsMouseHovered()) {
+      cam.position.z += wheel_delta;
+    }
+
     if (auto const exp{renderer->DrawFrame(*gpu_scene, cam)}; !exp) {
       pensieve::HandleError(exp.error());
       return EXIT_FAILURE;
