@@ -29,7 +29,7 @@ public:
   [[nodiscard]] auto IsLmbDown() const noexcept -> bool;
   [[nodiscard]] auto IsMouseHovered() const noexcept -> bool;
   [[nodiscard]] auto GetMouseDelta() const noexcept -> std::span<int const, 2>;
-  [[nodiscard]] auto GetMosueWheelDelta() const noexcept -> int;
+  [[nodiscard]] auto GetMouseWheelDelta() const noexcept -> int;
 
   [[nodiscard]] auto ToHwnd() const noexcept -> HWND;
   [[nodiscard]] auto IsValid() const noexcept -> bool;
@@ -51,6 +51,7 @@ private:
 
   bool is_lmb_down_{false};
   bool is_mouse_hovered_{false};
+  std::array<int, 2> mouse_pos_{0, 0};
   std::array<int, 2> mouse_delta_{0, 0};
   int mouse_wheel_delta_{0};
 };

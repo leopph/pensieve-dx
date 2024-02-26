@@ -53,8 +53,14 @@ auto main(int const argc, char* argv[]) -> int {
       }
     }
 
-    if (auto const wheel_delta{window->GetMosueWheelDelta()}; window->IsMouseHovered()) {
-      cam.position.z += wheel_delta;
+    if (window->IsMouseHovered()) {
+      cam.position.z += window->GetMouseWheelDelta();
+
+      if (window->IsLmbDown()) {
+        auto const mouse_delta{window->GetMouseDelta()};
+        cam.position.x += -static_cast<float>(mouse_delta[0]) / 100.0f;
+        cam.position.y += static_cast<float>(mouse_delta[1]) / 100.0f;
+      }
     }
 
     if (auto const exp{renderer->DrawFrame(*gpu_scene, cam)}; !exp) {

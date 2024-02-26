@@ -2,6 +2,8 @@
 
 #include <bit>
 
+#include <Windowsx.h>
+
 namespace pensieve {
 auto Window::PollEvents() noexcept -> void {
   should_close_ = false;
@@ -14,6 +16,13 @@ auto Window::PollEvents() noexcept -> void {
     TranslateMessage(&msg);
     DispatchMessageW(&msg);
   }
+
+  for (auto i{0}; i < 2; i++) {
+    mouse_pos_[i] += mouse_delta_[i];
+  }
+
+  is_mouse_hovered_ = mouse_pos_[0] >= 0 && mouse_pos_[1] >= 0 && mouse_pos_[0]
+    < static_cast<int>(size_[0]) && mouse_pos_[1] < static_cast<int>(size_[1]);
 }
 
 auto Window::ShouldClose() const noexcept -> bool {
@@ -40,7 +49,7 @@ auto Window::GetMouseDelta() const noexcept -> std::span<int const, 2> {
   return mouse_delta_;
 }
 
-auto Window::GetMosueWheelDelta() const noexcept -> int {
+auto Window::GetMouseWheelDelta() const noexcept -> int {
   return mouse_wheel_delta_;
 }
 
@@ -94,10 +103,10 @@ auto Window::WindowProc(HWND const hwnd, UINT const msg, WPARAM const wparam,
     }
 
     case WM_MOUSEMOVE: {
-      auto const pos_x{static_cast<short>(LOWORD(lparam))};
-      auto const pos_y{static_cast<short>(HIWORD(lparam))};
-      self->is_mouse_hovered_ = pos_x >= 0 && pos_y >= 0 && pos_x < static_cast<
-        int>(self->size_[0]) && pos_y < static_cast<int>(self->size_[1]);
+      std::array const new_pos{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+      for (auto i{0}; i < 2; i++) {
+        self->mouse_delta_[i] = new_pos[i] - self->mouse_pos_[i];
+      }
       return 0;
     }
     }
