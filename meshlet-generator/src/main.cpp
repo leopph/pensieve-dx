@@ -42,7 +42,9 @@ auto LoadScene(
                       aiProcess_CalcTangentSpace |
                       aiProcess_JoinIdenticalVertices | aiProcess_Triangulate |
                       aiProcess_RemoveComponent | aiProcess_GenNormals |
-                      aiProcess_SortByPType | aiProcess_GenUVCoords |
+                      aiProcess_RemoveRedundantMaterials | aiProcess_SortByPType
+                      | aiProcess_GenUVCoords | aiProcess_FindInstances |
+                      aiProcess_OptimizeMeshes | aiProcess_OptimizeGraph |
                       aiProcess_GlobalScale | aiProcess_ConvertToLeftHanded)
   };
 
