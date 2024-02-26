@@ -39,6 +39,7 @@
     <None Include="packages.config" />
     <None Include="src\shaders\common.hlsli" />
     <None Include="src\shaders\meshlet.hlsli" />
+    <None Include="src\shaders\instance_buffer.hlsli" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\renderer.hpp">

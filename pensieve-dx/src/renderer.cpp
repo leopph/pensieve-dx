@@ -515,7 +515,7 @@ auto Renderer::CreateGpuScene(
                                       });
   }
 
-  auto const create_buffer{
+  auto const create_buffer_from_upload_data{
     [this, &default_heap_props, &upload_buffer, &upload_fence_val, &upload_fence
     ](std::size_t const buf_size,
       ComPtr<ID3D12Resource2>& buf) -> std::expected<void, std::string> {
@@ -593,7 +593,9 @@ auto Renderer::CreateGpuScene(
     };
     std::memcpy(upload_buffer_ptr, &mtl, sizeof(mtl));
 
-    if (auto const exp{create_buffer(mtl_buffer_size, gpu_mtl.res)}; !exp) {
+    if (auto const exp{
+      create_buffer_from_upload_data(mtl_buffer_size, gpu_mtl.res)
+    }; !exp) {
       return std::unexpected{
         std::format("Failed to create material buffer {}: {}", idx, exp.error())
       };
@@ -612,8 +614,23 @@ auto Renderer::CreateGpuScene(
                                       });
   }
 
-  for (auto const& [idx, mesh_data] : std::ranges::views::enumerate(
-         scene_data.meshes)) {
+  std::vector<std::vector<InstanceBufferData>> instance_transforms_per_mesh;
+  instance_transforms_per_mesh.resize(scene_data.meshes.size());
+
+  for (auto const& node : scene_data.nodes) {
+    for (auto const mesh_idx : node.mesh_indices) {
+      DirectX::XMFLOAT4X4 const model_mtx{node.transform.data()};
+      DirectX::XMFLOAT4X4 normal_mtx;
+      XMStoreFloat4x4(&normal_mtx,
+                      XMMatrixTranspose(
+                        XMMatrixInverse(nullptr, XMLoadFloat4x4(&model_mtx))));
+      instance_transforms_per_mesh[mesh_idx].
+        emplace_back(model_mtx, normal_mtx);
+    }
+  }
+
+  for (std::size_t idx{0}; idx < scene_data.meshes.size(); idx++) {
+    auto const& mesh_data{scene_data.meshes[idx]};
     auto& gpu_mesh{gpu_scene.meshes.emplace_back()};
 
     auto const create_buffer_srv{
@@ -649,7 +666,9 @@ auto Renderer::CreateGpuScene(
 
       std::memcpy(upload_buffer_ptr, mesh_data.positions.data(), pos_buf_size);
 
-      if (auto const exp{create_buffer(pos_buf_size, gpu_mesh.pos_buf)}; !exp) {
+      if (auto const exp{
+        create_buffer_from_upload_data(pos_buf_size, gpu_mesh.pos_buf)
+      }; !exp) {
         return std::unexpected{
           std::format("Failed to create mesh {} position buffer: {}", idx,
                       exp.error())
@@ -669,7 +688,7 @@ auto Renderer::CreateGpuScene(
       std::memcpy(upload_buffer_ptr, mesh_data.normals.data(), norm_buf_size);
 
       if (auto const exp{
-        create_buffer(norm_buf_size, gpu_mesh.norm_buf)
+        create_buffer_from_upload_data(norm_buf_size, gpu_mesh.norm_buf)
       }; !exp) {
         return std::unexpected{
           std::format("Failed to create mesh {} normal buffer: {}", idx,
@@ -690,7 +709,9 @@ auto Renderer::CreateGpuScene(
       std::memcpy(upload_buffer_ptr, mesh_data.tangents.data(), tan_buf_size);
 
 
-      if (auto const exp{create_buffer(tan_buf_size, gpu_mesh.tan_buf)}; !exp) {
+      if (auto const exp{
+        create_buffer_from_upload_data(tan_buf_size, gpu_mesh.tan_buf)
+      }; !exp) {
         return std::unexpected{
           std::format("Failed to create mesh {} tangent buffer: {}", idx,
                       exp.error())
@@ -709,7 +730,7 @@ auto Renderer::CreateGpuScene(
       std::memcpy(upload_buffer_ptr, mesh_data.uvs->data(), uv_buf_size);
 
       if (auto const exp{
-        create_buffer(uv_buf_size, gpu_mesh.uv_buf.emplace())
+        create_buffer_from_upload_data(uv_buf_size, gpu_mesh.uv_buf.emplace())
       }; !exp) {
         return std::unexpected{
           std::format("Failed to create mesh {} uv buffer: {}", idx,
@@ -725,13 +746,16 @@ auto Renderer::CreateGpuScene(
     {
       {
         auto const meshlet_count{mesh_data.meshlets.size()};
-        auto constexpr meshlet_stride{sizeof(decltype(mesh_data.meshlets)::value_type)};
+        auto constexpr meshlet_stride{
+          sizeof(decltype(mesh_data.meshlets)::value_type)
+        };
         auto const meshlet_buf_size{meshlet_count * meshlet_stride};
 
-        std::memcpy(upload_buffer_ptr, mesh_data.meshlets.data(), meshlet_buf_size);
+        std::memcpy(upload_buffer_ptr, mesh_data.meshlets.data(),
+                    meshlet_buf_size);
 
         if (auto const exp{
-          create_buffer(meshlet_buf_size, gpu_mesh.meshlet_buf)
+          create_buffer_from_upload_data(meshlet_buf_size, gpu_mesh.meshlet_buf)
         }; !exp) {
           return std::unexpected{
             std::format("Failed to create mesh {} meshlet buffer: {}", idx,
@@ -750,10 +774,12 @@ auto Renderer::CreateGpuScene(
         auto constexpr vertex_idx_stride{sizeof(std::uint32_t)};
         auto const vertex_idx_buf_size{vertex_idx_count * vertex_idx_stride};
 
-        std::memcpy(upload_buffer_ptr, mesh_data.vertex_indices.data(), vertex_idx_buf_size);
+        std::memcpy(upload_buffer_ptr, mesh_data.vertex_indices.data(),
+                    vertex_idx_buf_size);
 
         if (auto const exp{
-          create_buffer(vertex_idx_buf_size, gpu_mesh.vertex_idx_buf)
+          create_buffer_from_upload_data(vertex_idx_buf_size,
+                                         gpu_mesh.vertex_idx_buf)
         }; !exp) {
           return std::unexpected{
             std::format("Failed to create mesh {} vertex index buffer: {}", idx,
@@ -772,10 +798,12 @@ auto Renderer::CreateGpuScene(
         auto constexpr prim_idx_stride{sizeof(MeshletTriangleIndexData)};
         auto const prim_idx_buf_size{prim_idx_count * prim_idx_stride};
 
-        std::memcpy(upload_buffer_ptr, mesh_data.triangle_indices.data(), prim_idx_buf_size);
+        std::memcpy(upload_buffer_ptr, mesh_data.triangle_indices.data(),
+                    prim_idx_buf_size);
 
         if (auto const exp{
-          create_buffer(prim_idx_buf_size, gpu_mesh.prim_idx_buf)
+          create_buffer_from_upload_data(prim_idx_buf_size,
+                                         gpu_mesh.prim_idx_buf)
         }; !exp) {
           return std::unexpected{
             std::format("Failed to create mesh {} primitive index buffer: {}",
@@ -793,43 +821,46 @@ auto Renderer::CreateGpuScene(
     }
 
     gpu_mesh.mtl_idx = mesh_data.material_idx;
-  }
 
-  for (auto const& [idx, node_data] : std::ranges::views::enumerate(
-         scene_data.nodes)) {
-    auto& gpu_node{
-      gpu_scene.nodes.emplace_back(node_data.mesh_indices,
-                                   DirectX::XMFLOAT4X4{
-                                     node_data.transform.data()
-                                   })
-    };
+    auto const instance_count{instance_transforms_per_mesh[idx].size()};
+    auto constexpr instance_data_stride{sizeof(InstanceBufferData)};
 
-    auto const draw_data_buf_desc{
+    std::memcpy(upload_buffer_ptr, instance_transforms_per_mesh[idx].data(),
+                instance_count * instance_data_stride);
+
+    if (auto const exp{
+      create_buffer_from_upload_data(instance_count * instance_data_stride,
+                                     gpu_mesh.inst_buf)
+    }; !exp) {
+      return std::unexpected{exp.error()};
+    }
+
+    create_buffer_srv(static_cast<UINT>(instance_count),
+                      static_cast<UINT>(instance_data_stride),
+                      gpu_mesh.inst_buf.Get(), gpu_mesh.inst_buf_srv_idx);
+
+    gpu_mesh.instance_count = static_cast<UINT>(instance_count);
+
+    auto const draw_data_desc{
       CD3DX12_RESOURCE_DESC1::Buffer(
         NextMultipleOf<UINT64>(256, sizeof(DrawData)))
     };
 
-    gpu_node.draw_data_bufs.resize(gpu_node.mesh_indices.size());
-    gpu_node.mapped_draw_data_bufs.resize(gpu_node.mesh_indices.size());
+    if (FAILED(
+      device_->CreateCommittedResource3(&upload_heap_props, D3D12_HEAP_FLAG_NONE
+        , &draw_data_desc, D3D12_BARRIER_LAYOUT_UNDEFINED, nullptr, nullptr, 0,
+        nullptr, IID_PPV_ARGS(&gpu_mesh.draw_data_buf)))) {
+      return std::unexpected{
+        std::format("Failed to create mesh {} draw data buffer.", idx)
+      };
+    }
 
-    for (std::size_t i{0}; i < gpu_node.mesh_indices.size(); i++) {
-      if (FAILED(
-        device_->CreateCommittedResource3(&upload_heap_props,
-          D3D12_HEAP_FLAG_NONE , &draw_data_buf_desc,
-          D3D12_BARRIER_LAYOUT_UNDEFINED, nullptr, nullptr, 0, nullptr,
-          IID_PPV_ARGS(&gpu_node.draw_data_bufs[i])))) {
-        return std::unexpected{
-          std::format("Failed to create node draw data buffer {}.", idx)
-        };
-      }
-
-      if (FAILED(
-        gpu_node.draw_data_bufs[i]->Map(0, nullptr, &gpu_node.
-          mapped_draw_data_bufs[i] ))) {
-        return std::unexpected{
-          std::format("Failed to map node draw data buffer {}.", idx)
-        };
-      }
+    if (FAILED(
+      gpu_mesh.draw_data_buf->Map(0, nullptr, &gpu_mesh.mapped_draw_data_buf
+      ))) {
+      return std::unexpected{
+        std::format("Failed to map mesh {} draw data buffer.", idx)
+      };
     }
   }
 
@@ -920,35 +951,29 @@ auto Renderer::DrawFrame(
   cmd_lists_[frame_idx_]->ClearDepthStencilView(
     dsv_cpu_handle_, D3D12_CLEAR_FLAG_DEPTH, 0.0f, 0, 0, nullptr);
 
-  for (auto const& node : scene.nodes) {
-    for (std::size_t i{0}; i < node.mesh_indices.size(); i++) {
-      auto const& mesh{scene.meshes[node.mesh_indices[i]]};
+  for (auto const& mesh : scene.meshes) {
+    DrawData draw_data{
+      .pos_buf_idx = mesh.pos_buf_srv_idx,
+      .norm_buf_idx = mesh.norm_buf_srv_idx,
+      .tan_buf_idx = mesh.tan_buf_srv_idx,
+      .uv_buf_idx = mesh.uv_buf_srv_idx
+                      ? *mesh.uv_buf_srv_idx
+                      : INVALID_RESOURCE_IDX,
+      .vertex_idx_buf_idx = mesh.vertex_idx_buf_srv_idx,
+      .prim_idx_buf_idx = mesh.prim_idx_buf_srv_idx,
+      .meshlet_buf_idx = mesh.meshlet_buf_srv_idx,
+      .mtl_buf_idx = scene.materials[mesh.mtl_idx].cbv_idx,
+      .inst_buf_idx = mesh.inst_buf_srv_idx, .inst_count = mesh.instance_count
+    };
 
-      DrawData draw_data{
-        .pos_buf_idx = mesh.pos_buf_srv_idx,
-        .norm_buf_idx = mesh.norm_buf_srv_idx,
-        .tan_buf_idx = mesh.tan_buf_srv_idx,
-        .uv_buf_idx = mesh.uv_buf_srv_idx
-                        ? *mesh.uv_buf_srv_idx
-                        : INVALID_RESOURCE_IDX,
-        .vertex_idx_buf_idx = mesh.vertex_idx_buf_srv_idx,
-        .prim_idx_buf_idx = mesh.prim_idx_buf_srv_idx,
-        .meshlet_buf_idx = mesh.meshlet_buf_srv_idx,
-        .mtl_buf_idx = scene.materials[mesh.mtl_idx].cbv_idx,
-        .model_mtx = node.transform
-      };
+    XMStoreFloat4x4(&draw_data.view_proj_mtx, view_proj_mtx);
 
-      XMStoreFloat4x4(&draw_data.normal_mtx,
-                      XMMatrixTranspose(XMMatrixInverse(nullptr,
-                        XMLoadFloat4x4(&node.transform))));
-      XMStoreFloat4x4(&draw_data.view_proj_mtx, view_proj_mtx);
+    std::memcpy(mesh.mapped_draw_data_buf, &draw_data, sizeof(draw_data));
 
-      std::memcpy(node.mapped_draw_data_bufs[i], &draw_data, sizeof(draw_data));
-
-      cmd_lists_[frame_idx_]->SetGraphicsRootConstantBufferView(
-        0, node.draw_data_bufs[i]->GetGPUVirtualAddress());
-      cmd_lists_[frame_idx_]->DispatchMesh(mesh.meshlet_count, 1, 1);
-    }
+    cmd_lists_[frame_idx_]->SetGraphicsRootConstantBufferView(
+      0, mesh.draw_data_buf->GetGPUVirtualAddress());
+    cmd_lists_[frame_idx_]->DispatchMesh(
+      mesh.meshlet_count * mesh.instance_count, 1, 1);
   }
 
   D3D12_TEXTURE_BARRIER const present_barrier{

@@ -11,9 +11,11 @@ struct DrawData {
   uint prim_idx_buf_idx;
   uint meshlet_buf_idx;
   uint mtl_buf_idx;
-  
-  row_major float4x4 model_mtx;
-  row_major float4x4 normal_mtx;
+
+  uint inst_buf_idx;
+  uint inst_count;
+  uint2 pad;
+
   row_major float4x4 view_proj_mtx;
 };
 

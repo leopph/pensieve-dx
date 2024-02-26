@@ -28,6 +28,10 @@ struct GpuMesh {
   Microsoft::WRL::ComPtr<ID3D12Resource2> prim_idx_buf;
   Microsoft::WRL::ComPtr<ID3D12Resource2> meshlet_buf;
 
+  Microsoft::WRL::ComPtr<ID3D12Resource2> inst_buf;
+  Microsoft::WRL::ComPtr<ID3D12Resource2> draw_data_buf;
+  void* mapped_draw_data_buf;
+
   UINT pos_buf_srv_idx;
   UINT norm_buf_srv_idx;
   UINT tan_buf_srv_idx;
@@ -38,19 +42,14 @@ struct GpuMesh {
 
   UINT mtl_idx;
   UINT meshlet_count;
-};
 
-struct GpuNode {
-  std::vector<unsigned> mesh_indices;
-  DirectX::XMFLOAT4X4 transform;
-  std::vector< Microsoft::WRL::ComPtr<ID3D12Resource2>> draw_data_bufs;
-  std::vector<void*> mapped_draw_data_bufs;
+  UINT inst_buf_srv_idx;
+  UINT instance_count;
 };
 
 struct GpuScene {
   std::vector<GpuTexture> textures;
   std::vector<GpuMaterial> materials;
   std::vector<GpuMesh> meshes;
-  std::vector<GpuNode> nodes;
 };
 }
