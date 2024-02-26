@@ -867,8 +867,9 @@ auto Renderer::CreateGpuScene(
   return gpu_scene;
 }
 
-auto Renderer::DrawFrame(
-  GpuScene const& scene) -> std::expected<void, std::string> {
+auto Renderer::DrawFrame(GpuScene const& scene,
+                         Camera const& cam) -> std::expected<
+  void, std::string> {
   auto const back_buf_idx{swap_chain_->GetCurrentBackBufferIndex()};
   auto const back_buf_desc{swap_chain_buffers_[back_buf_idx]->GetDesc1()};
   auto const aspect_ratio{
@@ -877,13 +878,14 @@ auto Renderer::DrawFrame(
   };
 
   auto const view_mtx{
-    DirectX::XMMatrixLookToLH(DirectX::XMVectorSet(0, 0, -5, 1),
+    DirectX::XMMatrixLookToLH(XMLoadFloat3(&cam.position),
                               DirectX::XMVectorSet(0, 0, 1, 1),
                               DirectX::XMVectorSet(0, 1, 0, 1))
   };
   auto const proj_mtx{
-    DirectX::XMMatrixPerspectiveFovLH(DirectX::XMConvertToRadians(60),
-                                      aspect_ratio, 100.0f, 0.1f)
+    DirectX::XMMatrixPerspectiveFovLH(
+      DirectX::XMConvertToRadians(cam.vertical_degrees_fov), aspect_ratio,
+      cam.far_clip_plane, cam.near_clip_plane)
   };
   auto const view_proj_mtx{XMMatrixMultiply(view_mtx, proj_mtx)};
 

@@ -60,7 +60,7 @@
     <ClInclude Include="src\error.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\Camera.hpp">
+    <ClInclude Include="src\camera.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\scene_loading.hpp">

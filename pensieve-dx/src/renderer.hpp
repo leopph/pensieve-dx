@@ -12,6 +12,7 @@
 #include <dxgi1_6.h>
 #include <wrl/client.h>
 
+#include "camera.hpp"
 #include "scene_data.hpp"
 #include "gpu_scene.hpp"
 
@@ -24,8 +25,7 @@ public:
   [[nodiscard]] auto CreateGpuScene(
     SceneData const& scene_data) -> std::expected<GpuScene, std::string>;
 
-  [[nodiscard]] auto DrawFrame(
-    GpuScene const& scene) -> std::expected<void, std::string>;
+  [[nodiscard]] auto DrawFrame(GpuScene const& scene, Camera const& cam) -> std::expected<void, std::string>;
 
   [[nodiscard]] auto
   WaitForDeviceIdle() const -> std::expected<void, std::string>;

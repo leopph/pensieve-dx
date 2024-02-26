@@ -101,7 +101,7 @@
     <None Include="src\shaders\ps_in.hlsli" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="src\Camera.hpp" />
+    <ClInclude Include="src\camera.hpp" />
     <ClInclude Include="src\error.hpp" />
     <ClInclude Include="src\gpu_scene.hpp" />
     <ClInclude Include="src\renderer.hpp" />

@@ -1,6 +1,7 @@
 #include <iostream>
 #include <cstdlib>
 
+#include "camera.hpp"
 #include "error.hpp"
 #include "scene_loading.hpp"
 #include "renderer.hpp"
@@ -40,6 +41,8 @@ auto main(int const argc, char* argv[]) -> int {
     return EXIT_FAILURE;
   }
 
+  pensieve::Camera cam{60, 0.1f, 100.0f, {0, 0, 0, 1}, {0, 0, -5}};
+
   while (!window->ShouldClose()) {
     window->PollEvents();
 
@@ -50,7 +53,7 @@ auto main(int const argc, char* argv[]) -> int {
       }
     }
 
-    if (auto const exp{renderer->DrawFrame(*gpu_scene)}; !exp) {
+    if (auto const exp{renderer->DrawFrame(*gpu_scene, cam)}; !exp) {
       pensieve::HandleError(exp.error());
       return EXIT_FAILURE;
     }
