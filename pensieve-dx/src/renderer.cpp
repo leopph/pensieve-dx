@@ -1157,7 +1157,8 @@ auto Renderer::CreateDepthBuffer(ID3D12Device10* const device,
 
   auto const depth_buf_desc{
     CD3DX12_RESOURCE_DESC1::Tex2D(depth_buffer_format_, width, height, 1, 1, 1,
-                                  0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)
+                                  0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL |
+                                  D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE)
   };
 
   CD3DX12_CLEAR_VALUE const depth_buf_clear_value{
