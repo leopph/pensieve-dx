@@ -28,6 +28,11 @@
 #include "scene_data.hpp"
 
 namespace pensieve {
+namespace {
+constexpr auto kMeshletMaxVerts{128};
+constexpr auto kMeshletMaxPrims{256};
+}
+
 auto LoadScene(
   std::filesystem::path const& path) -> std::expected<SceneData, std::string> {
   Assimp::Importer importer;
@@ -258,7 +263,7 @@ auto LoadScene(
       ComputeMeshlets(indices.data(), indices.size() / 3, positions.data(),
         positions.size(), nullptr, reinterpret_cast<std::vector<DirectX::Meshlet
         >&>(meshlets), vertex_indices, reinterpret_cast<std::vector<DirectX::
-        MeshletTriangle>&>(primitive_indices), 128, 128))) {
+        MeshletTriangle>&>(primitive_indices), kMeshletMaxVerts, kMeshletMaxPrims))) {
       return std::unexpected{
         std::format("Failed to generate meshlets for mesh {}.",
                     mesh->mName.C_Str())

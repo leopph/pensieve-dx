@@ -10,7 +10,7 @@ void main(
   in uint group_id : SV_GroupID,
   in uint group_thread_id : SV_GroupThreadID,
   out vertices PsIn out_verts[128],
-  out indices uint3 out_indices[128]) {
+  out indices uint3 out_indices[256]) {
   const uint meshlet_idx = group_id / g_draw_data.inst_count;
   const uint inst_idx = group_id % g_draw_data.inst_count;
 
@@ -54,10 +54,14 @@ void main(
     }
   }
 
-  if (group_thread_id < meshlet.primitive_count) {
-    const StructuredBuffer<uint> primitive_indices = ResourceDescriptorHeap[g_draw_data.prim_idx_buf_idx];
-    const uint packed_indices = primitive_indices[meshlet.primitive_offset + group_thread_id];
+  for (uint i = 0; i < 2; i++) {
+    const uint primitive_idx = group_thread_id + i * 128;
+
+    if (primitive_idx < meshlet.primitive_count) {
+      const StructuredBuffer<uint> primitive_indices = ResourceDescriptorHeap[g_draw_data.prim_idx_buf_idx];
+      const uint packed_indices = primitive_indices[meshlet.primitive_offset + primitive_idx];
     
-    out_indices[group_thread_id] = uint3(packed_indices & 0x3FF, (packed_indices >> 10) & 0x3FF, (packed_indices >> 20) & 0x3FF);
+      out_indices[primitive_idx] = uint3(packed_indices & 0x3FF, (packed_indices >> 10) & 0x3FF, (packed_indices >> 20) & 0x3FF);
+    }
   }
 }
