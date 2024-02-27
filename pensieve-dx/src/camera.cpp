@@ -1,5 +1,7 @@
 #include "camera.hpp"
 
+#include <algorithm>
+
 namespace pensieve {
 Camera::Camera(float const vertical_degrees_fov, float const near_clip_plane,
                float const far_clip_plane, float const distance) :
@@ -47,7 +49,8 @@ auto Camera::Update(std::span<int const, 2> const mouse_delta,
       };
       XMStoreFloat3(&center, new_center);
     } else {
-      distance -= static_cast<float>(mouse_wheel_deta);
+      distance = std::max(distance - static_cast<float>(mouse_wheel_deta),
+                          0.01f);
     }
   }
 }
