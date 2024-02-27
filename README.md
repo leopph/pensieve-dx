@@ -10,3 +10,4 @@ The following third party libraries are used:
 - Assimp for model loading
 - stb_image for texture loading
 - DirectXMesh for meshlet generation
+- D3D12 Memory Allocator for GPU memory management
