@@ -41,6 +41,10 @@ auto Window::IsLmbDown() const noexcept -> bool {
   return is_lmb_down_;
 }
 
+auto Window::IsMmbDown() const noexcept -> bool {
+  return is_mmb_down_;
+}
+
 auto Window::IsMouseHovered() const noexcept -> bool {
   return is_mouse_hovered_;
 }
@@ -94,6 +98,16 @@ auto Window::WindowProc(HWND const hwnd, UINT const msg, WPARAM const wparam,
 
     case WM_LBUTTONUP: {
       self->is_lmb_down_ = false;
+      return 0;
+    }
+
+    case WM_MBUTTONDOWN: {
+      self->is_mmb_down_ = true;
+      return 0;
+    }
+
+    case WM_MBUTTONUP: {
+      self->is_mmb_down_ = false;
       return 0;
     }
 

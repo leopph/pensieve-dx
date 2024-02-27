@@ -878,9 +878,14 @@ auto Renderer::DrawFrame(GpuScene const& scene,
   };
 
   auto const view_mtx{
-    DirectX::XMMatrixLookToLH(XMLoadFloat3(&cam.position),
-                              DirectX::XMVectorSet(0, 0, 1, 1),
-                              DirectX::XMVectorSet(0, 1, 0, 1))
+    DirectX::XMMatrixLookAtLH(DirectX::XMVectorNegativeMultiplySubtract(
+                                DirectX::XMVector3Rotate(
+                                  DirectX::XMVectorSet(0, 0, 1, 0),
+                                  XMLoadFloat4(&cam.rotation)),
+                                DirectX::XMVectorReplicate(cam.distance),
+                                XMLoadFloat3(&cam.center)),
+                              XMLoadFloat3(&cam.center),
+                              DirectX::XMVectorSet(0, 1, 0, 0))
   };
   auto const proj_mtx{
     DirectX::XMMatrixPerspectiveFovLH(

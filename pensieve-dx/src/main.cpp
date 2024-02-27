@@ -41,7 +41,7 @@ auto main(int const argc, char* argv[]) -> int {
     return EXIT_FAILURE;
   }
 
-  pensieve::Camera cam{60, 0.1f, 100.0f, {0, 0, 0, 1}, {0, 0, -5}};
+  pensieve::Camera cam{60, 0.1f, 100.0f, 5.0f};
 
   while (!window->ShouldClose()) {
     window->PollEvents();
@@ -53,15 +53,9 @@ auto main(int const argc, char* argv[]) -> int {
       }
     }
 
-    if (window->IsMouseHovered()) {
-      cam.position.z += window->GetMouseWheelDelta();
-
-      if (window->IsLmbDown()) {
-        auto const mouse_delta{window->GetMouseDelta()};
-        cam.position.x += -static_cast<float>(mouse_delta[0]) / 100.0f;
-        cam.position.y += static_cast<float>(mouse_delta[1]) / 100.0f;
-      }
-    }
+    cam.Update(window->GetMouseDelta(), window->GetMouseWheelDelta(),
+               window->IsMouseHovered(), window->IsLmbDown(),
+               window->IsMmbDown());
 
     if (auto const exp{renderer->DrawFrame(*gpu_scene, cam)}; !exp) {
       pensieve::HandleError(exp.error());
