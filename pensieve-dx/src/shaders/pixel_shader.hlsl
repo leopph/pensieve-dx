@@ -81,7 +81,9 @@ float4 main(const PsIn ps_in) : SV_Target {
   const float3 specular_factor = f;
   const float3 diffuse_factor = (1 - specular_factor) * (1 - metallic);
 
-  const float3 lighting = n_dot_l * (diffuse_factor * diffuse + specular);
+  const float3 ambient = 0.03 * base_color;
+
+  const float3 lighting = ambient + n_dot_l * (diffuse_factor * diffuse + specular);
 
   float3 out_color = lighting + emission;
   out_color /= out_color + 1;
