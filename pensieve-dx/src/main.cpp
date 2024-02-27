@@ -1,5 +1,6 @@
 #include <iostream>
 #include <cstdlib>
+#include <limits>
 
 #include "camera.hpp"
 #include "error.hpp"
@@ -41,7 +42,7 @@ auto main(int const argc, char* argv[]) -> int {
     return EXIT_FAILURE;
   }
 
-  pensieve::Camera cam{60, 0.1f, 100.0f, 5.0f};
+  pensieve::Camera cam{60, 0.1f, 10'000.0f, 5.0f};
 
   while (!window->ShouldClose()) {
     window->PollEvents();
