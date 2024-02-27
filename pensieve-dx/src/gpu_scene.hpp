@@ -3,33 +3,32 @@
 #include <optional>
 #include <vector>
 
-#include <d3d12.h>
+#include <D3D12MemAlloc.h>
 #include <wrl/client.h>
-#include <DirectXMath.h>
 
 namespace pensieve {
 struct GpuTexture {
-  Microsoft::WRL::ComPtr<ID3D12Resource2> res;
+  Microsoft::WRL::ComPtr<D3D12MA::Allocation> res;
   UINT srv_idx;
 };
 
 struct GpuMaterial {
-  Microsoft::WRL::ComPtr<ID3D12Resource2> res;
+  Microsoft::WRL::ComPtr<D3D12MA::Allocation> res;
   UINT cbv_idx;
 };
 
 struct GpuMesh {
-  Microsoft::WRL::ComPtr<ID3D12Resource2> pos_buf;
-  Microsoft::WRL::ComPtr<ID3D12Resource2> norm_buf;
-  Microsoft::WRL::ComPtr<ID3D12Resource2> tan_buf;
-  std::optional<Microsoft::WRL::ComPtr<ID3D12Resource2>> uv_buf;
+  Microsoft::WRL::ComPtr<D3D12MA::Allocation> pos_buf;
+  Microsoft::WRL::ComPtr<D3D12MA::Allocation> norm_buf;
+  Microsoft::WRL::ComPtr<D3D12MA::Allocation> tan_buf;
+  std::optional<Microsoft::WRL::ComPtr<D3D12MA::Allocation>> uv_buf;
 
-  Microsoft::WRL::ComPtr<ID3D12Resource2> vertex_idx_buf;
-  Microsoft::WRL::ComPtr<ID3D12Resource2> prim_idx_buf;
-  Microsoft::WRL::ComPtr<ID3D12Resource2> meshlet_buf;
+  Microsoft::WRL::ComPtr<D3D12MA::Allocation> vertex_idx_buf;
+  Microsoft::WRL::ComPtr<D3D12MA::Allocation> prim_idx_buf;
+  Microsoft::WRL::ComPtr<D3D12MA::Allocation> meshlet_buf;
 
-  Microsoft::WRL::ComPtr<ID3D12Resource2> inst_buf;
-  Microsoft::WRL::ComPtr<ID3D12Resource2> draw_data_buf;
+  Microsoft::WRL::ComPtr<D3D12MA::Allocation> inst_buf;
+  Microsoft::WRL::ComPtr<D3D12MA::Allocation> draw_data_buf;
   void* mapped_draw_data_buf;
 
   UINT pos_buf_srv_idx;

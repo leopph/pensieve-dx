@@ -9,6 +9,7 @@
 #define NOMINMAX
 #include <Windows.h>
 #include <d3d12.h>
+#include <D3D12MemAlloc.h>
 #include <dxgi1_6.h>
 #include <wrl/client.h>
 
@@ -25,7 +26,9 @@ public:
   [[nodiscard]] auto CreateGpuScene(
     SceneData const& scene_data) -> std::expected<GpuScene, std::string>;
 
-  [[nodiscard]] auto DrawFrame(GpuScene const& scene, Camera const& cam) -> std::expected<void, std::string>;
+  [[nodiscard]] auto DrawFrame(GpuScene const& scene,
+                               Camera const& cam) -> std::expected<
+    void, std::string>;
 
   [[nodiscard]] auto
   WaitForDeviceIdle() const -> std::expected<void, std::string>;
@@ -57,6 +60,7 @@ private:
            Microsoft::WRL::ComPtr<ID3D12Fence> frame_fence,
            Microsoft::WRL::ComPtr<ID3D12RootSignature> root_sig,
            Microsoft::WRL::ComPtr<ID3D12PipelineState> pso,
+           Microsoft::WRL::ComPtr<D3D12MA::Allocator> mem_allocator,
            UINT swap_chain_flags, UINT present_flags);
 
   [[nodiscard]] static auto RetrieveSwapChainBuffers(
@@ -98,6 +102,8 @@ private:
 
   Microsoft::WRL::ComPtr<ID3D12RootSignature> root_sig_;
   Microsoft::WRL::ComPtr<ID3D12PipelineState> pso_;
+
+  Microsoft::WRL::ComPtr<D3D12MA::Allocator> mem_allocator_;
 
   std::vector<UINT> res_desc_heap_free_indices_;
 

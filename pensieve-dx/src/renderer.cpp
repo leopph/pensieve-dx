@@ -368,13 +368,22 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
     return std::unexpected{"Failed to create pipeline state object."};
   }
 
+  D3D12MA::ALLOCATOR_DESC const mem_allocator_desc{
+    D3D12MA::ALLOCATOR_FLAG_NONE, device.Get(), 0, nullptr, adapter.Get()
+  };
+
+  ComPtr<D3D12MA::Allocator> mem_allocator;
+  if (FAILED(CreateAllocator(&mem_allocator_desc, &mem_allocator))) {
+    return std::unexpected{"Failed to create memory allocator."};
+  }
+
   return Renderer{
     std::move(factory), std::move(device), std::move(direct_queue),
     std::move(swap_chain), std::move(swap_chain_buffers),
     std::move(depth_buffer), std::move(rtv_heap), std::move(dsv_heap),
     std::move(res_desc_heap), std::move(cmd_allocs), std::move(cmd_lists),
     std::move(frame_fence), std::move(root_sig), std::move(pso),
-    swap_chain_flags, present_flags
+    std::move(mem_allocator), swap_chain_flags, present_flags
   };
 }
 
@@ -392,25 +401,26 @@ auto Renderer::CreateGpuScene(
       D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
   };
 
-  D3D12_HEAP_PROPERTIES constexpr upload_heap_props{
-    D3D12_HEAP_TYPE_UPLOAD, D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
-    D3D12_MEMORY_POOL_UNKNOWN, 0, 0
-  };
-
   auto const upload_buffer_desc{
     CD3DX12_RESOURCE_DESC1::Buffer(upload_buffer_size)
   };
 
-  ComPtr<ID3D12Resource2> upload_buffer;
+  D3D12MA::ALLOCATION_DESC constexpr upload_alloc_desc{
+    D3D12MA::ALLOCATION_FLAG_NONE, D3D12_HEAP_TYPE_UPLOAD, D3D12_HEAP_FLAG_NONE,
+    nullptr, nullptr
+  };
+
+  ComPtr<D3D12MA::Allocation> upload_buffer;
   if (FAILED(
-    device_->CreateCommittedResource3(&upload_heap_props, D3D12_HEAP_FLAG_NONE,
-      &upload_buffer_desc, D3D12_BARRIER_LAYOUT_UNDEFINED, nullptr, nullptr, 0,
-      nullptr, IID_PPV_ARGS(&upload_buffer)))) {
+    mem_allocator_->CreateResource3(&upload_alloc_desc, &upload_buffer_desc,
+      D3D12_BARRIER_LAYOUT_UNDEFINED, nullptr, 0, nullptr, &upload_buffer,
+      IID_NULL, nullptr))) {
     return std::unexpected{"Failed to create GPU upload buffer."};
   }
 
   void* upload_buffer_ptr;
-  if (FAILED(upload_buffer->Map(0, nullptr, &upload_buffer_ptr))) {
+  if (FAILED(
+    upload_buffer->GetResource()->Map(0, nullptr, &upload_buffer_ptr))) {
     return std::unexpected{"Failed to map GPU upload buffer."};
   }
 
@@ -422,9 +432,9 @@ auto Renderer::CreateGpuScene(
     return std::unexpected{"Failed to create upload fence."};
   }
 
-  D3D12_HEAP_PROPERTIES constexpr default_heap_props{
-    D3D12_HEAP_TYPE_DEFAULT, D3D12_CPU_PAGE_PROPERTY_UNKNOWN,
-    D3D12_MEMORY_POOL_UNKNOWN, 0, 0
+  D3D12MA::ALLOCATION_DESC constexpr default_alloc_desc{
+    D3D12MA::ALLOCATION_FLAG_NONE, D3D12_HEAP_TYPE_DEFAULT,
+    D3D12_HEAP_FLAG_NONE, nullptr, nullptr
   };
 
   GpuScene gpu_scene;
@@ -439,10 +449,11 @@ auto Renderer::CreateGpuScene(
       CD3DX12_RESOURCE_DESC1::Tex2D(DXGI_FORMAT_R8G8B8A8_UNORM, img.width,
                                     img.height)
     };
+
     if (FAILED(
-      device_->CreateCommittedResource3(&default_heap_props,
-        D3D12_HEAP_FLAG_NONE , & tex_desc, D3D12_BARRIER_LAYOUT_COPY_DEST,
-        nullptr, nullptr, 0, nullptr, IID_PPV_ARGS(&gpu_tex.res)))) {
+      mem_allocator_->CreateResource3(&default_alloc_desc, &tex_desc,
+        D3D12_BARRIER_LAYOUT_COPY_DEST, nullptr, 0, nullptr, &gpu_tex.res,
+        IID_NULL, nullptr))) {
       return std::unexpected{
         std::format("Failed to create GPU texture {}.", idx)
       };
@@ -465,15 +476,17 @@ auto Renderer::CreateGpuScene(
       img.bytes.get(), 4 * img.width, 4 * img.width * img.height
     };
 
-    UpdateSubresources<1>(cmd_lists_[frame_idx_].Get(), gpu_tex.res.Get(),
-                          upload_buffer.Get(), 0, 0, 1, &tex_data);
+    UpdateSubresources<1>(cmd_lists_[frame_idx_].Get(),
+                          gpu_tex.res->GetResource(),
+                          upload_buffer->GetResource(), 0, 0, 1, &tex_data);
 
     D3D12_TEXTURE_BARRIER const barrier{
       D3D12_BARRIER_SYNC_COPY, D3D12_BARRIER_SYNC_NONE,
       D3D12_BARRIER_ACCESS_COPY_DEST, D3D12_BARRIER_ACCESS_NO_ACCESS,
       D3D12_BARRIER_LAYOUT_COPY_DEST,
-      D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_SHADER_RESOURCE, gpu_tex.res.Get(),
-      {0, 1, 0, 1, 0, 1}, D3D12_TEXTURE_BARRIER_FLAG_NONE
+      D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_SHADER_RESOURCE,
+      gpu_tex.res->GetResource(), {0, 1, 0, 1, 0, 1},
+      D3D12_TEXTURE_BARRIER_FLAG_NONE
     };
 
     D3D12_BARRIER_GROUP const barrier_group{
@@ -507,7 +520,7 @@ auto Renderer::CreateGpuScene(
       .Texture2D = {0, 1, 0, 0.0f}
     };
 
-    device_->CreateShaderResourceView(gpu_tex.res.Get(), &srv_desc,
+    device_->CreateShaderResourceView(gpu_tex.res->GetResource(), &srv_desc,
                                       CD3DX12_CPU_DESCRIPTOR_HANDLE{
                                         res_desc_heap_cpu_start,
                                         static_cast<INT>(gpu_tex.srv_idx),
@@ -516,15 +529,15 @@ auto Renderer::CreateGpuScene(
   }
 
   auto const create_buffer_from_upload_data{
-    [this, &default_heap_props, &upload_buffer, &upload_fence_val, &upload_fence
+    [this, &default_alloc_desc, &upload_buffer, &upload_fence_val, &upload_fence
     ](std::size_t const buf_size,
-      ComPtr<ID3D12Resource2>& buf) -> std::expected<void, std::string> {
+      ComPtr<D3D12MA::Allocation>& buf) -> std::expected<void, std::string> {
       auto const buf_desc{CD3DX12_RESOURCE_DESC1::Buffer(buf_size)};
 
       if FAILED(
-        device_->CreateCommittedResource3(&default_heap_props,
-          D3D12_HEAP_FLAG_NONE, &buf_desc, D3D12_BARRIER_LAYOUT_UNDEFINED,
-          nullptr, nullptr, 0, nullptr, IID_PPV_ARGS(&buf))) {
+        mem_allocator_->CreateResource3(&default_alloc_desc, &buf_desc,
+          D3D12_BARRIER_LAYOUT_UNDEFINED, nullptr, 0, nullptr, &buf, IID_NULL,
+          nullptr)) {
         return std::unexpected{"Failed to create buffer."};
       }
 
@@ -538,8 +551,8 @@ auto Renderer::CreateGpuScene(
         return std::unexpected{"Failed to reset command list."};
       }
 
-      cmd_lists_[frame_idx_]->CopyBufferRegion(buf.Get(), 0,
-                                               upload_buffer.Get(), 0,
+      cmd_lists_[frame_idx_]->CopyBufferRegion(buf->GetResource(), 0,
+                                               upload_buffer->GetResource(), 0,
                                                buf_desc.Width);
 
       if (FAILED(cmd_lists_[frame_idx_]->Close())) {
@@ -604,7 +617,8 @@ auto Renderer::CreateGpuScene(
     gpu_mtl.cbv_idx = AllocateResourceDescriptorIndex();
 
     D3D12_CONSTANT_BUFFER_VIEW_DESC const cbv_desc{
-      gpu_mtl.res->GetGPUVirtualAddress(), static_cast<UINT>(mtl_buffer_size)
+      gpu_mtl.res->GetResource()->GetGPUVirtualAddress(),
+      static_cast<UINT>(mtl_buffer_size)
     };
 
     device_->CreateConstantBufferView(&cbv_desc, CD3DX12_CPU_DESCRIPTOR_HANDLE{
@@ -636,7 +650,7 @@ auto Renderer::CreateGpuScene(
     auto const create_buffer_srv{
       [this, res_desc_heap_cpu_start, res_desc_inc](UINT const element_count,
                                                     UINT const element_stride,
-                                                    ID3D12Resource2* const buf,
+                                                    ID3D12Resource* const buf,
                                                     UINT& srv_idx) {
         srv_idx = AllocateResourceDescriptorIndex();
 
@@ -676,7 +690,8 @@ auto Renderer::CreateGpuScene(
       }
 
       create_buffer_srv(static_cast<UINT>(pos_count),
-                        static_cast<UINT>(pos_stride), gpu_mesh.pos_buf.Get(),
+                        static_cast<UINT>(pos_stride),
+                        gpu_mesh.pos_buf->GetResource(),
                         gpu_mesh.pos_buf_srv_idx);
     }
 
@@ -697,7 +712,8 @@ auto Renderer::CreateGpuScene(
       }
 
       create_buffer_srv(static_cast<UINT>(norm_count),
-                        static_cast<UINT>(norm_stride), gpu_mesh.norm_buf.Get(),
+                        static_cast<UINT>(norm_stride),
+                        gpu_mesh.norm_buf->GetResource(),
                         gpu_mesh.norm_buf_srv_idx);
     }
 
@@ -719,7 +735,8 @@ auto Renderer::CreateGpuScene(
       }
 
       create_buffer_srv(static_cast<UINT>(tan_count),
-                        static_cast<UINT>(tan_stride), gpu_mesh.tan_buf.Get(),
+                        static_cast<UINT>(tan_stride),
+                        gpu_mesh.tan_buf->GetResource(),
                         gpu_mesh.tan_buf_srv_idx);
     }
 
@@ -739,7 +756,8 @@ auto Renderer::CreateGpuScene(
       }
 
       create_buffer_srv(static_cast<UINT>(uv_count),
-                        static_cast<UINT>(uv_stride), gpu_mesh.uv_buf->Get(),
+                        static_cast<UINT>(uv_stride),
+                        (*gpu_mesh.uv_buf)->GetResource(),
                         gpu_mesh.uv_buf_srv_idx.emplace());
     }
 
@@ -765,7 +783,7 @@ auto Renderer::CreateGpuScene(
 
         create_buffer_srv(static_cast<UINT>(meshlet_count),
                           static_cast<UINT>(meshlet_stride),
-                          gpu_mesh.meshlet_buf.Get(),
+                          gpu_mesh.meshlet_buf->GetResource(),
                           gpu_mesh.meshlet_buf_srv_idx);
       }
 
@@ -789,7 +807,7 @@ auto Renderer::CreateGpuScene(
 
         create_buffer_srv(static_cast<UINT>(vertex_idx_count),
                           static_cast<UINT>(vertex_idx_stride),
-                          gpu_mesh.vertex_idx_buf.Get(),
+                          gpu_mesh.vertex_idx_buf->GetResource(),
                           gpu_mesh.vertex_idx_buf_srv_idx);
       }
 
@@ -813,7 +831,7 @@ auto Renderer::CreateGpuScene(
 
         create_buffer_srv(static_cast<UINT>(prim_idx_count),
                           static_cast<UINT>(prim_idx_stride),
-                          gpu_mesh.prim_idx_buf.Get(),
+                          gpu_mesh.prim_idx_buf->GetResource(),
                           gpu_mesh.prim_idx_buf_srv_idx);
       }
 
@@ -837,7 +855,8 @@ auto Renderer::CreateGpuScene(
 
     create_buffer_srv(static_cast<UINT>(instance_count),
                       static_cast<UINT>(instance_data_stride),
-                      gpu_mesh.inst_buf.Get(), gpu_mesh.inst_buf_srv_idx);
+                      gpu_mesh.inst_buf->GetResource(),
+                      gpu_mesh.inst_buf_srv_idx);
 
     gpu_mesh.instance_count = static_cast<UINT>(instance_count);
 
@@ -847,17 +866,17 @@ auto Renderer::CreateGpuScene(
     };
 
     if (FAILED(
-      device_->CreateCommittedResource3(&upload_heap_props, D3D12_HEAP_FLAG_NONE
-        , &draw_data_desc, D3D12_BARRIER_LAYOUT_UNDEFINED, nullptr, nullptr, 0,
-        nullptr, IID_PPV_ARGS(&gpu_mesh.draw_data_buf)))) {
+      mem_allocator_->CreateResource3(&upload_alloc_desc, &draw_data_desc,
+        D3D12_BARRIER_LAYOUT_UNDEFINED, nullptr, 0, nullptr, &gpu_mesh.
+        draw_data_buf, IID_NULL, nullptr))) {
       return std::unexpected{
         std::format("Failed to create mesh {} draw data buffer.", idx)
       };
     }
 
     if (FAILED(
-      gpu_mesh.draw_data_buf->Map(0, nullptr, &gpu_mesh.mapped_draw_data_buf
-      ))) {
+      gpu_mesh.draw_data_buf->GetResource()->Map(0, nullptr, &gpu_mesh.
+        mapped_draw_data_buf ))) {
       return std::unexpected{
         std::format("Failed to map mesh {} draw data buffer.", idx)
       };
@@ -978,7 +997,7 @@ auto Renderer::DrawFrame(GpuScene const& scene,
     std::memcpy(mesh.mapped_draw_data_buf, &draw_data, sizeof(draw_data));
 
     cmd_lists_[frame_idx_]->SetGraphicsRootConstantBufferView(
-      0, mesh.draw_data_buf->GetGPUVirtualAddress());
+      0, mesh.draw_data_buf->GetResource()->GetGPUVirtualAddress());
     cmd_lists_[frame_idx_]->DispatchMesh(
       mesh.meshlet_count * mesh.instance_count, 1, 1);
   }
@@ -1101,8 +1120,9 @@ Renderer::Renderer(ComPtr<IDXGIFactory7> factory, ComPtr<ID3D12Device10> device,
                               max_frames_in_flight_> cmd_lists,
                    ComPtr<ID3D12Fence> frame_fence,
                    ComPtr<ID3D12RootSignature> root_sig,
-                   ComPtr<ID3D12PipelineState> pso, UINT const swap_chain_flags,
-                   UINT const present_flags) :
+                   ComPtr<ID3D12PipelineState> pso,
+                   ComPtr<D3D12MA::Allocator> mem_allocator,
+                   UINT const swap_chain_flags, UINT const present_flags) :
   factory_{std::move(factory)}, device_{std::move(device)},
   direct_queue_{std::move(direct_queue)}, swap_chain_{std::move(swap_chain)},
   swap_chain_buffers_{std::move(swap_chain_buffers)},
@@ -1110,7 +1130,7 @@ Renderer::Renderer(ComPtr<IDXGIFactory7> factory, ComPtr<ID3D12Device10> device,
   dsv_heap_{std::move(dsv_heap)}, res_desc_heap_{std::move(res_desc_heap)},
   cmd_allocs_{std::move(cmd_allocs)}, cmd_lists_{std::move(cmd_lists)},
   frame_fence_{std::move(frame_fence)}, root_sig_{std::move(root_sig)},
-  pso_{std::move(pso)},
+  pso_{std::move(pso)}, mem_allocator_{std::move(mem_allocator)},
   dsv_cpu_handle_{
     CD3DX12_CPU_DESCRIPTOR_HANDLE{
       dsv_heap_->GetCPUDescriptorHandleForHeapStart(), 0,
