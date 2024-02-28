@@ -23,7 +23,7 @@ float3 SchlickFresnel(const float v_dot_h, const float3 f0) {
 }
 
 float4 main(const PsIn ps_in) : SV_Target {
-  const ConstantBuffer<Material> material = ResourceDescriptorHeap[g_draw_data.mtl_buf_idx];
+  const ConstantBuffer<Material> material = ResourceDescriptorHeap[g_draw_params.mtl_buf_idx];
 
   float3 base_color = material.base_color;
   float metallic = material.metallic;

@@ -1,7 +1,7 @@
-#ifndef DRAW_DATA_HLSLI
-#define DRAW_DATA_HLSLI
+#ifndef DRAW_PARAMS_HLSLI
+#define DRAW_PARAMS_HLSLI
 
-struct DrawData {
+struct DrawParams {
   uint pos_buf_idx;
   uint norm_buf_idx;
   uint tan_buf_idx;
@@ -12,11 +12,11 @@ struct DrawData {
   uint meshlet_buf_idx;
   uint mtl_buf_idx;
 
+  row_major float4x4 view_proj_mtx;
+
   uint inst_buf_idx;
   uint inst_count;
-  uint2 pad;
-
-  row_major float4x4 view_proj_mtx;
+  uint instance_offset;
 };
 
 #endif

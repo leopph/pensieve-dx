@@ -274,9 +274,8 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
   }
 
   CD3DX12_ROOT_PARAMETER1 root_param;
-  root_param.InitAsConstantBufferView(
-    0, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC_WHILE_SET_AT_EXECUTE,
-    D3D12_SHADER_VISIBILITY_ALL);
+  root_param.InitAsConstants(sizeof(DrawParams) / 4, 0, 0,
+                             D3D12_SHADER_VISIBILITY_ALL);
   CD3DX12_STATIC_SAMPLER_DESC const sampler_desc{0};
 
   D3D12_VERSIONED_ROOT_SIGNATURE_DESC const root_sig_desc{
@@ -578,7 +577,7 @@ auto Renderer::CreateGpuScene(
 
   auto constexpr mtl_buffer_size{
     std::max(NextMultipleOf<UINT64>(256, sizeof(Material)),
-             NextMultipleOf<UINT64>(256, sizeof(DrawData)))
+             NextMultipleOf<UINT64>(256, sizeof(DrawParams)))
   };
 
   for (auto const& [idx, mtl_data] : std::ranges::views::enumerate(
@@ -859,28 +858,6 @@ auto Renderer::CreateGpuScene(
                       gpu_mesh.inst_buf_srv_idx);
 
     gpu_mesh.instance_count = static_cast<UINT>(instance_count);
-
-    auto const draw_data_desc{
-      CD3DX12_RESOURCE_DESC1::Buffer(
-        NextMultipleOf<UINT64>(256, sizeof(DrawData)))
-    };
-
-    if (FAILED(
-      mem_allocator_->CreateResource3(&upload_alloc_desc, &draw_data_desc,
-        D3D12_BARRIER_LAYOUT_UNDEFINED, nullptr, 0, nullptr, &gpu_mesh.
-        draw_data_buf, IID_NULL, nullptr))) {
-      return std::unexpected{
-        std::format("Failed to create mesh {} draw data buffer.", idx)
-      };
-    }
-
-    if (FAILED(
-      gpu_mesh.draw_data_buf->GetResource()->Map(0, nullptr, &gpu_mesh.
-        mapped_draw_data_buf ))) {
-      return std::unexpected{
-        std::format("Failed to map mesh {} draw data buffer.", idx)
-      };
-    }
   }
 
   return gpu_scene;
@@ -895,23 +872,29 @@ auto Renderer::DrawFrame(GpuScene const& scene,
     static_cast<float>(back_buf_desc.Width) / static_cast<float>(back_buf_desc.
       Height)
   };
+  auto const view_proj_mtx{
+    [&cam, aspect_ratio] {
+      auto const view_mtx{
+        DirectX::XMMatrixLookAtLH(DirectX::XMVectorNegativeMultiplySubtract(
+                                    DirectX::XMVector3Rotate(
+                                      DirectX::XMVectorSet(0, 0, 1, 0),
+                                      XMLoadFloat4(&cam.rotation)),
+                                    DirectX::XMVectorReplicate(cam.distance),
+                                    XMLoadFloat3(&cam.center)),
+                                  XMLoadFloat3(&cam.center),
+                                  DirectX::XMVectorSet(0, 1, 0, 0))
+      };
+      auto const proj_mtx{
+        DirectX::XMMatrixPerspectiveFovLH(
+          DirectX::XMConvertToRadians(cam.vertical_degrees_fov), aspect_ratio,
+          cam.far_clip_plane, cam.near_clip_plane)
+      };
 
-  auto const view_mtx{
-    DirectX::XMMatrixLookAtLH(DirectX::XMVectorNegativeMultiplySubtract(
-                                DirectX::XMVector3Rotate(
-                                  DirectX::XMVectorSet(0, 0, 1, 0),
-                                  XMLoadFloat4(&cam.rotation)),
-                                DirectX::XMVectorReplicate(cam.distance),
-                                XMLoadFloat3(&cam.center)),
-                              XMLoadFloat3(&cam.center),
-                              DirectX::XMVectorSet(0, 1, 0, 0))
+      DirectX::XMFLOAT4X4 ret;
+      XMStoreFloat4x4(&ret, XMMatrixMultiply(view_mtx, proj_mtx));
+      return ret;
+    }()
   };
-  auto const proj_mtx{
-    DirectX::XMMatrixPerspectiveFovLH(
-      DirectX::XMConvertToRadians(cam.vertical_degrees_fov), aspect_ratio,
-      cam.far_clip_plane, cam.near_clip_plane)
-  };
-  auto const view_proj_mtx{XMMatrixMultiply(view_mtx, proj_mtx)};
 
   if (FAILED(cmd_allocs_[frame_idx_]->Reset())) {
     return std::unexpected{
@@ -978,28 +961,46 @@ auto Renderer::DrawFrame(GpuScene const& scene,
     dsv_cpu_handle_, D3D12_CLEAR_FLAG_DEPTH, 0.0f, 0, 0, nullptr);
 
   for (auto const& mesh : scene.meshes) {
-    DrawData draw_data{
-      .pos_buf_idx = mesh.pos_buf_srv_idx,
-      .norm_buf_idx = mesh.norm_buf_srv_idx,
-      .tan_buf_idx = mesh.tan_buf_srv_idx,
-      .uv_buf_idx = mesh.uv_buf_srv_idx
-                      ? *mesh.uv_buf_srv_idx
-                      : INVALID_RESOURCE_IDX,
-      .vertex_idx_buf_idx = mesh.vertex_idx_buf_srv_idx,
-      .prim_idx_buf_idx = mesh.prim_idx_buf_srv_idx,
-      .meshlet_buf_idx = mesh.meshlet_buf_srv_idx,
-      .mtl_buf_idx = scene.materials[mesh.mtl_idx].cbv_idx,
-      .inst_buf_idx = mesh.inst_buf_srv_idx, .inst_count = mesh.instance_count
+    cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
+      0, mesh.pos_buf_srv_idx, offsetof(DrawParams, pos_buf_idx) / 4);
+    cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
+      0, mesh.norm_buf_srv_idx, offsetof(DrawParams, norm_buf_idx) / 4);
+    cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
+      0, mesh.tan_buf_srv_idx, offsetof(DrawParams, tan_buf_idx) / 4);
+    cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
+      0, mesh.uv_buf_srv_idx ? *mesh.uv_buf_srv_idx : INVALID_RESOURCE_IDX,
+      offsetof(DrawParams, uv_buf_idx) / 4);
+    cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
+      0, mesh.vertex_idx_buf_srv_idx,
+      offsetof(DrawParams, vertex_idx_buf_idx) / 4);
+    cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
+      0, mesh.prim_idx_buf_srv_idx, offsetof(DrawParams, prim_idx_buf_idx) / 4);
+    cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
+      0, mesh.meshlet_buf_srv_idx, offsetof(DrawParams, meshlet_buf_idx) / 4);
+    cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
+      0, scene.materials[mesh.mtl_idx].cbv_idx,
+      offsetof(DrawParams, mtl_buf_idx) / 4);
+    cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstants(
+      0, 16, view_proj_mtx.m, offsetof(DrawParams, view_proj_mtx) / 4);
+    cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
+      0, mesh.inst_buf_srv_idx, offsetof(DrawParams, inst_buf_idx) / 4);
+    cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
+      0, mesh.instance_count, offsetof(DrawParams, inst_count) / 4);
+
+    auto constexpr max_dispatch_thread_group_count{65535};
+    auto const per_batch_instance_count{
+      std::min(max_dispatch_thread_group_count / mesh.meshlet_count,
+               mesh.instance_count)
     };
 
-    XMStoreFloat4x4(&draw_data.view_proj_mtx, view_proj_mtx);
-
-    std::memcpy(mesh.mapped_draw_data_buf, &draw_data, sizeof(draw_data));
-
-    cmd_lists_[frame_idx_]->SetGraphicsRootConstantBufferView(
-      0, mesh.draw_data_buf->GetResource()->GetGPUVirtualAddress());
-    cmd_lists_[frame_idx_]->DispatchMesh(
-      mesh.meshlet_count * mesh.instance_count, 1, 1);
+    for (std::size_t i{0}; i * per_batch_instance_count < mesh.instance_count; i
+         ++) {
+      cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
+        0, static_cast<UINT>(i * per_batch_instance_count),
+        offsetof(DrawParams, instance_offset) / 4);
+      cmd_lists_[frame_idx_]->DispatchMesh(
+        mesh.meshlet_count * per_batch_instance_count, 1, 1);
+    }
   }
 
   D3D12_TEXTURE_BARRIER const present_barrier{

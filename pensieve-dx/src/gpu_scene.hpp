@@ -28,8 +28,6 @@ struct GpuMesh {
   Microsoft::WRL::ComPtr<D3D12MA::Allocation> meshlet_buf;
 
   Microsoft::WRL::ComPtr<D3D12MA::Allocation> inst_buf;
-  Microsoft::WRL::ComPtr<D3D12MA::Allocation> draw_data_buf;
-  void* mapped_draw_data_buf;
 
   UINT pos_buf_srv_idx;
   UINT norm_buf_srv_idx;

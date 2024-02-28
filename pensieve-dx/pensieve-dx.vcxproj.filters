@@ -38,7 +38,7 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="src\shaders\draw_data.hlsli" />
+    <None Include="src\shaders\draw_params.hlsli" />
     <None Include="src\shaders\ps_in.hlsli" />
     <None Include="src\shaders\material.hlsli" />
     <None Include="src\shaders\globals.hlsli" />
