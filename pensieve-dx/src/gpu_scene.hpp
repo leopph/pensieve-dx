@@ -6,6 +6,8 @@
 #include <D3D12MemAlloc.h>
 #include <wrl/client.h>
 
+#include "scene_data.hpp"
+
 namespace pensieve {
 struct GpuTexture {
   Microsoft::WRL::ComPtr<D3D12MA::Allocation> res;
@@ -28,6 +30,8 @@ struct GpuMesh {
   Microsoft::WRL::ComPtr<D3D12MA::Allocation> meshlet_buf;
 
   Microsoft::WRL::ComPtr<D3D12MA::Allocation> inst_buf;
+
+  MeshletData last_meshlet;
 
   UINT pos_buf_srv_idx;
   UINT norm_buf_srv_idx;

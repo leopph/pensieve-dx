@@ -2,6 +2,7 @@
 
 #include <algorithm>
 //#include <bit>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -858,6 +859,7 @@ auto Renderer::CreateGpuScene(
                       gpu_mesh.inst_buf_srv_idx);
 
     gpu_mesh.instance_count = static_cast<UINT>(instance_count);
+    gpu_mesh.last_meshlet = mesh_data.meshlets.back();
   }
 
   return gpu_scene;
@@ -985,21 +987,45 @@ auto Renderer::DrawFrame(GpuScene const& scene,
     cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
       0, mesh.inst_buf_srv_idx, offsetof(DrawParams, inst_buf_idx) / 4);
     cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
-      0, mesh.instance_count, offsetof(DrawParams, inst_count) / 4);
+      0, mesh.meshlet_count, offsetof(DrawParams, meshlet_count) / 4);
 
     auto constexpr max_dispatch_thread_group_count{65535};
-    auto const per_batch_instance_count{
-      std::min(max_dispatch_thread_group_count / mesh.meshlet_count,
-               mesh.instance_count)
+
+    auto const pack_count{
+      std::min(MESHLET_MAX_VERTS / mesh.last_meshlet.vert_count,
+               MESHLET_MAX_PRIMS / mesh.last_meshlet.prim_count)
+    };
+    auto const group_count_per_instance{
+      static_cast<float>(mesh.meshlet_count - 1) + 1.0f / static_cast<float>(
+        pack_count)
+    };
+    auto const max_instance_count_per_batch{
+      static_cast<std::uint32_t>(static_cast<float>(
+        max_dispatch_thread_group_count) / group_count_per_instance)
+    };
+    auto const dispatch_count{
+      DivRoundUp(mesh.instance_count, max_instance_count_per_batch)
     };
 
-    for (std::size_t i{0}; i * per_batch_instance_count < mesh.instance_count; i
-         ++) {
+    for (std::size_t i{0}; i < dispatch_count; i++) {
+      auto const batch_instance_offset{
+        static_cast<UINT>(i * max_instance_count_per_batch)
+      };
+      auto const batch_instance_count{
+        std::min(mesh.instance_count - batch_instance_offset,
+                 max_instance_count_per_batch)
+      };
+
       cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
-        0, static_cast<UINT>(i * per_batch_instance_count),
-        offsetof(DrawParams, instance_offset) / 4);
-      cmd_lists_[frame_idx_]->DispatchMesh(
-        mesh.meshlet_count * per_batch_instance_count, 1, 1);
+        0, batch_instance_offset, offsetof(DrawParams, instance_offset) / 4);
+      cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
+        0, batch_instance_count, offsetof(DrawParams, inst_count) / 4);
+
+      auto const group_count{
+        static_cast<std::uint32_t>(std::ceilf(
+          group_count_per_instance * batch_instance_count))
+      };
+      cmd_lists_[frame_idx_]->DispatchMesh(group_count, 1, 1);
     }
   }
 

@@ -2,5 +2,7 @@
 #define COMMON_HLSLI
 
 #define INVALID_RESOURCE_IDX -1
+#define MESHLET_MAX_VERTS 128
+#define MESHLET_MAX_PRIMS 256
 
 #endif

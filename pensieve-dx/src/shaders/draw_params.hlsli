@@ -17,6 +17,7 @@ struct DrawParams {
   uint inst_buf_idx;
   uint inst_count;
   uint instance_offset;
+  uint meshlet_count;
 };
 
 #endif
