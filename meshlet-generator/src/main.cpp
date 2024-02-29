@@ -472,12 +472,12 @@ auto main(int const argc, char** const argv) -> int {
     return EXIT_SUCCESS;
   }
 
-  std::cout << "Generating meshlets...\n";
+  std::cout << "Processing mesh...\n";
 
   auto const scene{pensieve::LoadScene(argv[1])};
 
   if (!scene) {
-    std::cerr << scene.error() << '\n';
+    std::cerr << "Error: " << scene.error() << '\n';
     return EXIT_FAILURE;
   }
 
