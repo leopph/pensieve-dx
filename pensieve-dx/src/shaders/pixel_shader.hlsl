@@ -10,7 +10,6 @@ static const float3 kLightDirs[kLightCount] = {
 };
 
 static const float kPi = 3.14159265;
-static const float3 kCameraPos = float3(0, 0, -5);
 static const float kGamma = 2.2;
 
 float TrowbridgeReitzGgxNdf(const float n_dot_h, const float roughness) {
@@ -67,7 +66,7 @@ float4 main(const PsIn ps_in) : SV_Target {
 
   const float3 f0 = lerp(0.04, base_color, metallic);
 
-  const float3 dir_to_cam = normalize(kCameraPos - ps_in.position_ws);
+  const float3 dir_to_cam = normalize(g_draw_params.camera_pos - ps_in.position_ws);
   const float n_dot_v = saturate(dot(normal, dir_to_cam));
 
   const float3 diffuse = base_color / kPi;

@@ -875,16 +875,21 @@ auto Renderer::DrawFrame(GpuScene const& scene,
     static_cast<float>(back_buf_desc.Width) / static_cast<float>(back_buf_desc.
       Height)
   };
+
+  auto const xm_cam_pos{
+    DirectX::XMVectorNegativeMultiplySubtract(
+      DirectX::XMVector3Rotate(DirectX::XMVectorSet(0, 0, 1, 0),
+                               XMLoadFloat4(&cam.rotation)),
+      DirectX::XMVectorReplicate(cam.distance), XMLoadFloat3(&cam.center))
+  };
+
+  DirectX::XMFLOAT3 cam_pos;
+  XMStoreFloat3(&cam_pos, xm_cam_pos);
+
   auto const view_proj_mtx{
-    [&cam, aspect_ratio] {
+    [&cam, &xm_cam_pos, aspect_ratio] {
       auto const view_mtx{
-        DirectX::XMMatrixLookAtLH(DirectX::XMVectorNegativeMultiplySubtract(
-                                    DirectX::XMVector3Rotate(
-                                      DirectX::XMVectorSet(0, 0, 1, 0),
-                                      XMLoadFloat4(&cam.rotation)),
-                                    DirectX::XMVectorReplicate(cam.distance),
-                                    XMLoadFloat3(&cam.center)),
-                                  XMLoadFloat3(&cam.center),
+        DirectX::XMMatrixLookAtLH(xm_cam_pos, XMLoadFloat3(&cam.center),
                                   DirectX::XMVectorSet(0, 1, 0, 0))
       };
       auto const proj_mtx{
@@ -965,6 +970,8 @@ auto Renderer::DrawFrame(GpuScene const& scene,
 
   cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstants(
     0, 16, view_proj_mtx.m, offsetof(DrawParams, view_proj_mtx) / 4);
+  cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstants(
+    0, 3, &cam_pos.x, offsetof(DrawParams, camera_pos) / 4);
 
   for (auto const& mesh : scene.meshes) {
     cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
@@ -1034,8 +1041,13 @@ auto Renderer::DrawFrame(GpuScene const& scene,
           group_count_per_instance * batch_instance_count))
       };
 
-      auto const dispatch_y{static_cast<UINT>(1 + group_count / max_dispatch_dim_size)};
-      auto const dispatch_x{static_cast<UINT>(1 + (group_count + max_dispatch_dim_size - 1) % max_dispatch_dim_size)};
+      auto const dispatch_y{
+        static_cast<UINT>(1 + group_count / max_dispatch_dim_size)
+      };
+      auto const dispatch_x{
+        static_cast<UINT>(1 + (group_count + max_dispatch_dim_size - 1) %
+          max_dispatch_dim_size)
+      };
 
       cmd_lists_[frame_idx_]->DispatchMesh(dispatch_x, dispatch_y, 1);
     }

@@ -18,6 +18,8 @@ struct DrawParams {
   uint meshlet_count;
 
   row_major float4x4 view_proj_mtx;
+
+  float3 camera_pos;
 };
 
 #endif
