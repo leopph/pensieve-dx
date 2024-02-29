@@ -962,6 +962,9 @@ auto Renderer::DrawFrame(GpuScene const& scene,
   cmd_lists_[frame_idx_]->ClearDepthStencilView(
     dsv_cpu_handle_, D3D12_CLEAR_FLAG_DEPTH, 0.0f, 0, 0, nullptr);
 
+  cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstants(
+    0, 16, view_proj_mtx.m, offsetof(DrawParams, view_proj_mtx) / 4);
+
   for (auto const& mesh : scene.meshes) {
     cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
       0, mesh.pos_buf_srv_idx, offsetof(DrawParams, pos_buf_idx) / 4);
@@ -983,8 +986,6 @@ auto Renderer::DrawFrame(GpuScene const& scene,
     cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
       0, scene.materials[mesh.mtl_idx].cbv_idx,
       offsetof(DrawParams, mtl_buf_idx) / 4);
-    cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstants(
-      0, 16, view_proj_mtx.m, offsetof(DrawParams, view_proj_mtx) / 4);
     cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
       0, mesh.inst_buf_srv_idx, offsetof(DrawParams, inst_buf_idx) / 4);
     cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
