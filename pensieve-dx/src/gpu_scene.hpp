@@ -35,7 +35,7 @@ struct GpuMesh {
 
   UINT pos_buf_srv_idx;
   UINT norm_buf_srv_idx;
-  UINT tan_buf_srv_idx;
+  std::optional<UINT> tan_buf_srv_idx;
   std::optional<UINT> uv_buf_srv_idx;
   UINT vertex_idx_buf_srv_idx;
   UINT prim_idx_buf_srv_idx;

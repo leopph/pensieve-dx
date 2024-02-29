@@ -717,12 +717,12 @@ auto Renderer::CreateGpuScene(
                         gpu_mesh.norm_buf_srv_idx);
     }
 
-    {
-      auto const tan_count{mesh_data.tangents.size()};
+    if (mesh_data.tangents) {
+      auto const tan_count{mesh_data.tangents->size()};
       auto constexpr tan_stride{sizeof(DirectX::XMFLOAT4)};
       auto const tan_buf_size{tan_count * tan_stride};
 
-      std::memcpy(upload_buffer_ptr, mesh_data.tangents.data(), tan_buf_size);
+      std::memcpy(upload_buffer_ptr, mesh_data.tangents->data(), tan_buf_size);
 
 
       if (auto const exp{
@@ -737,7 +737,7 @@ auto Renderer::CreateGpuScene(
       create_buffer_srv(static_cast<UINT>(tan_count),
                         static_cast<UINT>(tan_stride),
                         gpu_mesh.tan_buf->GetResource(),
-                        gpu_mesh.tan_buf_srv_idx);
+                        gpu_mesh.tan_buf_srv_idx.emplace());
     }
 
     if (mesh_data.uvs) {
@@ -968,9 +968,10 @@ auto Renderer::DrawFrame(GpuScene const& scene,
     cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
       0, mesh.norm_buf_srv_idx, offsetof(DrawParams, norm_buf_idx) / 4);
     cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
-      0, mesh.tan_buf_srv_idx, offsetof(DrawParams, tan_buf_idx) / 4);
+      0, mesh.tan_buf_srv_idx.value_or(INVALID_RESOURCE_IDX),
+      offsetof(DrawParams, tan_buf_idx) / 4);
     cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
-      0, mesh.uv_buf_srv_idx ? *mesh.uv_buf_srv_idx : INVALID_RESOURCE_IDX,
+      0, mesh.uv_buf_srv_idx.value_or(INVALID_RESOURCE_IDX),
       offsetof(DrawParams, uv_buf_idx) / 4);
     cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
       0, mesh.vertex_idx_buf_srv_idx,

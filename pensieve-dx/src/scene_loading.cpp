@@ -268,16 +268,27 @@ auto LoadScene(
       return std::unexpected{std::format("Failed to read mesh {} normals.", i)};
     }
 
-    tangents.resize(vertex_count);
-    auto const tan_buf_byte_size{
-      static_cast<std::streamsize>(vertex_count * sizeof(Float4))
-    };
-    in.read(std::bit_cast<char*>(tangents.data()), tan_buf_byte_size);
+    int has_tangents;
+    in.read(std::bit_cast<char*>(&has_tangents), sizeof(has_tangents));
 
-    if (in.gcount() != tan_buf_byte_size) {
+    if (in.gcount() != sizeof(has_tangents)) {
       return std::unexpected{
-        std::format("Failed to read mesh {} tangents.", i)
+        std::format("Failed to read mesh {} tangent availability.", i)
       };
+    }
+
+    if (has_tangents) {
+      tangents.emplace().resize(vertex_count);
+      auto const tan_buf_byte_size{
+        static_cast<std::streamsize>(vertex_count * sizeof(Float4))
+      };
+      in.read(std::bit_cast<char*>(tangents->data()), tan_buf_byte_size);
+
+      if (in.gcount() != tan_buf_byte_size) {
+        return std::unexpected{
+          std::format("Failed to read mesh {} tangents.", i)
+        };
+      }
     }
 
     int has_uvs;

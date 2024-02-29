@@ -46,7 +46,7 @@ struct MeshletTriangleIndexData {
 struct MeshData {
   std::vector<Float4> positions;
   std::vector<Float4> normals;
-  std::vector<Float4> tangents;
+  std::optional<std::vector<Float4>> tangents;
   std::optional<std::vector<Float2>> uvs;
   std::vector<MeshletData> meshlets;
   std::vector<std::uint8_t> vertex_indices;

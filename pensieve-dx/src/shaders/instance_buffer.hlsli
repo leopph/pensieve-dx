@@ -3,7 +3,7 @@
 
 struct InstanceBufferData {
   row_major float4x4 model_mtx;
-  row_major float4x4 normal_mtx;
+  row_major float4x4 model_inv_transp_mtx;
 };
 
 #endif

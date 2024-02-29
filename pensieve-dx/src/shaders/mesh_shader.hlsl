@@ -11,25 +11,29 @@ PsIn CalculateVertex(const uint vertex_idx, const uint instance_idx) {
   const StructuredBuffer<float4> normals = ResourceDescriptorHeap[g_draw_params.norm_buf_idx];
   const float3 normal_os = normalize(normals[vertex_idx].xyz);
 
-  const StructuredBuffer<float4> tangents = ResourceDescriptorHeap[g_draw_params.tan_buf_idx];
-  const float3 tangent_os = normalize(tangents[vertex_idx].xyz);
-
   const StructuredBuffer<InstanceBufferData> instance_data_buffer = ResourceDescriptorHeap[g_draw_params.inst_buf_idx];
   const InstanceBufferData instance_data = instance_data_buffer[instance_idx];
     
   const float4 position_ws = mul(position_os, instance_data.model_mtx);
   const float4 position_cs = mul(position_ws, g_draw_params.view_proj_mtx);
-  const float3 normal_ws = normalize(mul(normal_os, (float3x3) instance_data.normal_mtx));
-  float3 tangent_ws = normalize(mul(tangent_os, (float3x3) instance_data.model_mtx));
-  tangent_ws = normalize(tangent_ws - dot(tangent_ws, normal_ws) * normal_ws);
-  const float3 bitangent_ws = cross(normal_ws, tangent_ws);
-  const float3x3 tbn_mtx_ws = float3x3(tangent_ws, bitangent_ws, normal_ws);
+  const float3 normal_ws = normalize(mul(normal_os, (float3x3) instance_data.model_inv_transp_mtx));
 
   PsIn ps_in;
   ps_in.position_ws = position_ws.xyz;
   ps_in.position_cs = position_cs;
   ps_in.normal_ws = normal_ws;
-  ps_in.tbn_mtx_ws = tbn_mtx_ws;
+
+  if (g_draw_params.tan_buf_idx != INVALID_RESOURCE_IDX) {
+    const StructuredBuffer<float4> tangents = ResourceDescriptorHeap[g_draw_params.tan_buf_idx];
+    const float3 tangent_os = normalize(tangents[vertex_idx].xyz);
+
+    float3 tangent_ws = normalize(mul(tangent_os, (float3x3) instance_data.model_mtx));
+    tangent_ws = normalize(tangent_ws - dot(tangent_ws, normal_ws) * normal_ws);
+    const float3 bitangent_ws = cross(normal_ws, tangent_ws);
+    ps_in.tbn_mtx_ws = float3x3(tangent_ws, bitangent_ws, normal_ws);
+  } else {
+    ps_in.tbn_mtx_ws = 0;
+  }
 
   if (g_draw_params.uv_buf_idx != INVALID_RESOURCE_IDX) {
     const StructuredBuffer<float2> uvs = ResourceDescriptorHeap[g_draw_params.uv_buf_idx];

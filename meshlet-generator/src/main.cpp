@@ -216,31 +216,28 @@ auto LoadScene(
       };
     }
 
-    std::vector<DirectX::XMFLOAT3> normals;
+    std::vector<Float4> normals;
     normals.reserve(mesh->mNumVertices);
     std::ranges::transform(mesh->mNormals, mesh->mNormals + mesh->mNumVertices,
                            std::back_inserter(normals),
                            [](aiVector3D const& normal) {
-                             return DirectX::XMFLOAT3{
-                               normal.x, normal.y, normal.z
-                             };
+                             return Float4{normal.x, normal.y, normal.z, 0.0f};
                            });
 
-    if (!mesh->HasTangentsAndBitangents()) {
-      return std::unexpected{
-        std::format("Mesh {} contains no vertex tangents.", mesh->mName.C_Str())
-      };
+    std::optional<std::vector<Float4>> tangents;
+
+    if (mesh->HasTangentsAndBitangents()) {
+      tangents.emplace();
+      tangents->reserve(mesh->mNumVertices);
+      std::ranges::transform(mesh->mTangents,
+                             mesh->mTangents + mesh->mNumVertices,
+                             std::back_inserter(*tangents),
+                             [](aiVector3D const& tangent) {
+                               return Float4{
+                                 tangent.x, tangent.y, tangent.z, 0.0f
+                               };
+                             });
     }
-    std::vector<DirectX::XMFLOAT3> tangents;
-    tangents.reserve(mesh->mNumVertices);
-    std::ranges::transform(mesh->mTangents,
-                           mesh->mTangents + mesh->mNumVertices,
-                           std::back_inserter(tangents),
-                           [](aiVector3D const& tangent) {
-                             return DirectX::XMFLOAT3{
-                               tangent.x, tangent.y, tangent.z
-                             };
-                           });
 
     if (!mesh->HasFaces()) {
       return std::unexpected{
@@ -263,7 +260,8 @@ auto LoadScene(
       ComputeMeshlets(indices.data(), indices.size() / 3, positions.data(),
         positions.size(), nullptr, reinterpret_cast<std::vector<DirectX::Meshlet
         >&>(meshlets), vertex_indices, reinterpret_cast<std::vector<DirectX::
-        MeshletTriangle>&>(primitive_indices), kMeshletMaxVerts, kMeshletMaxPrims))) {
+        MeshletTriangle>&>(primitive_indices), kMeshletMaxVerts,
+        kMeshletMaxPrims))) {
       return std::unexpected{
         std::format("Failed to generate meshlets for mesh {}.",
                     mesh->mName.C_Str())
@@ -277,22 +275,8 @@ auto LoadScene(
                              return Float4{pos.x, pos.y, pos.z, 1.0f};
                            });
 
-    std::vector<Float4> normals4;
-    normals4.reserve(normals.size());
-    std::ranges::transform(normals, std::back_inserter(normals4),
-                           [](DirectX::XMFLOAT3 const& norm) {
-                             return Float4{norm.x, norm.y, norm.z, 0.0f};
-                           });
-
-    std::vector<Float4> tangents4;
-    tangents4.reserve(tangents4.size());
-    std::ranges::transform(tangents, std::back_inserter(tangents4),
-                           [](DirectX::XMFLOAT3 const& tan) {
-                             return Float4{tan.x, tan.y, tan.z, 0.0f};
-                           });
-
-    scene_data.meshes.emplace_back(std::move(positions4), std::move(normals4),
-                                   std::move(tangents4), std::move(uvs),
+    scene_data.meshes.emplace_back(std::move(positions4), std::move(normals),
+                                   std::move(tangents), std::move(uvs),
                                    std::move(meshlets),
                                    std::move(vertex_indices),
                                    std::move(primitive_indices),
@@ -338,51 +322,26 @@ auto LoadScene(
 
   return scene_data;
 }
-}
 
-auto main(int const argc, char** const argv) -> int {
-  if (argc < 3) {
-    std::cout <<
-      "Usage: meshlet-generator <source-model-file> <destination-file>\n";
-    return EXIT_SUCCESS;
-  }
-
-  std::cout << "Generating meshlets...\n";
-
-  auto const scene{pensieve::LoadScene(argv[1])};
-
-  if (!scene) {
-    std::cerr << scene.error() << '\n';
-    return EXIT_FAILURE;
-  }
-
-  std::ofstream out{
-    argv[2], std::ios::binary | std::ios::out | std::ios::trunc
-  };
-
-  if (!out.is_open()) {
-    std::cerr << "Failed to open output file.\n";
-    return EXIT_FAILURE;
-  }
-
+auto WriteScene(std::ofstream& out, SceneData const& scene) -> void {
   std::span constexpr header{"pensieve"};
   out.write(header.data(), header.size());
 
-  auto const texture_count{scene->textures.size()};
+  auto const texture_count{scene.textures.size()};
   out.write(std::bit_cast<char const*>(&texture_count), sizeof(texture_count));
 
-  for (auto const& tex : scene->textures) {
+  for (auto const& tex : scene.textures) {
     out.write(std::bit_cast<char const*>(&tex.width), sizeof(tex.width));
     out.write(std::bit_cast<char const*>(&tex.height), sizeof(tex.height));
     out.write(std::bit_cast<char const*>(tex.bytes.get()),
               4 * tex.width * tex.height);
   }
 
-  auto const material_count{scene->materials.size()};
+  auto const material_count{scene.materials.size()};
   out.write(std::bit_cast<char const*>(&material_count),
             sizeof(material_count));
 
-  for (auto const& mtl : scene->materials) {
+  for (auto const& mtl : scene.materials) {
     out.write(std::bit_cast<char const*>(&mtl.base_color),
               sizeof(mtl.base_color));
     out.write(std::bit_cast<char const*>(&mtl.metallic), sizeof(mtl.metallic));
@@ -437,18 +396,25 @@ auto main(int const argc, char** const argv) -> int {
     }
   }
 
-  auto const mesh_count{scene->meshes.size()};
+  auto const mesh_count{scene.meshes.size()};
   out.write(std::bit_cast<char const*>(&mesh_count), sizeof(mesh_count));
 
-  for (auto const& mesh : scene->meshes) {
+  for (auto const& mesh : scene.meshes) {
     auto const vertex_count{mesh.positions.size()};
     out.write(std::bit_cast<char const*>(&vertex_count), sizeof(vertex_count));
     out.write(std::bit_cast<char const*>(mesh.positions.data()),
               vertex_count * sizeof(decltype(mesh.positions)::value_type));
     out.write(std::bit_cast<char const*>(mesh.normals.data()),
               vertex_count * sizeof(decltype(mesh.normals)::value_type));
-    out.write(std::bit_cast<char const*>(mesh.tangents.data()),
-              vertex_count * sizeof(decltype(mesh.tangents)::value_type));
+
+    int const has_tangents{mesh.tangents.has_value()};
+    out.write(std::bit_cast<char const*>(&has_tangents), sizeof(has_tangents));
+
+    if (has_tangents) {
+      out.write(std::bit_cast<char const*>(mesh.tangents->data()),
+                vertex_count * sizeof(decltype(mesh.tangents
+                )::value_type::value_type));
+    }
 
     int const has_uvs{mesh.uvs.has_value()};
     out.write(std::bit_cast<char const*>(&has_uvs), sizeof(has_uvs));
@@ -483,10 +449,10 @@ auto main(int const argc, char** const argv) -> int {
               sizeof(mesh.material_idx));
   }
 
-  auto const node_count{scene->nodes.size()};
+  auto const node_count{scene.nodes.size()};
   out.write(std::bit_cast<char const*>(&node_count), sizeof(node_count));
 
-  for (auto const& node : scene->nodes) {
+  for (auto const& node : scene.nodes) {
     auto const mesh_index_count{node.mesh_indices.size()};
     out.write(std::bit_cast<char const*>(&mesh_index_count),
               sizeof(mesh_index_count));
@@ -496,6 +462,35 @@ auto main(int const argc, char** const argv) -> int {
     out.write(std::bit_cast<char const*>(&node.transform),
               sizeof(node.transform));
   }
+}
+}
+
+auto main(int const argc, char** const argv) -> int {
+  if (argc < 3) {
+    std::cout <<
+      "Usage: meshlet-generator <source-model-file> <destination-file>\n";
+    return EXIT_SUCCESS;
+  }
+
+  std::cout << "Generating meshlets...\n";
+
+  auto const scene{pensieve::LoadScene(argv[1])};
+
+  if (!scene) {
+    std::cerr << scene.error() << '\n';
+    return EXIT_FAILURE;
+  }
+
+  std::ofstream out{
+    argv[2], std::ios::binary | std::ios::out | std::ios::trunc
+  };
+
+  if (!out.is_open()) {
+    std::cerr << "Failed to open output file.\n";
+    return EXIT_FAILURE;
+  }
+
+  WriteScene(out, *scene);
 
   return EXIT_SUCCESS;
 }
