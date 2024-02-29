@@ -52,22 +52,24 @@ uint3 UnpackIndices(const uint packed_indices) {
 [outputtopology("triangle")]
 [numthreads(MESHLET_MAX_VERTS, 1, 1)]
 void main(
-  const uint gid : SV_GroupID,
+  const uint2 group_id : SV_GroupID,
   const uint gtid : SV_GroupThreadID,
   out vertices PsIn out_verts[MESHLET_MAX_VERTS],
   out indices uint3 out_tris[MESHLET_MAX_PRIMS]) {
-  const uint meshlet_idx = gid / g_draw_params.inst_count;
+  const uint group_idx = group_id.y * 65535 + group_id.x;
+
+  const uint meshlet_idx = group_idx / g_draw_params.inst_count;
   const StructuredBuffer<Meshlet> meshlets = ResourceDescriptorHeap[g_draw_params.meshlet_buf_idx];
   const Meshlet meshlet = meshlets[meshlet_idx];
 
-  uint start_instance = gid % g_draw_params.inst_count;
+  uint start_instance = group_idx % g_draw_params.inst_count;
   uint instance_count = 1;
 
   if (meshlet_idx == g_draw_params.meshlet_count - 1) {
     const uint instances_per_group = min(MESHLET_MAX_VERTS / meshlet.vertex_count, MESHLET_MAX_PRIMS / meshlet.primitive_count);
 
     const uint unpacked_group_count = (g_draw_params.meshlet_count - 1) * g_draw_params.inst_count;
-    const uint packed_index = gid - unpacked_group_count;
+    const uint packed_index = group_idx - unpacked_group_count;
 
     start_instance = packed_index * instances_per_group;
     instance_count = min(g_draw_params.inst_count - start_instance, instances_per_group);

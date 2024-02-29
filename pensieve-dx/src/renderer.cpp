@@ -38,6 +38,7 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
   }
 
   debug->EnableDebugLayer();
+  debug->SetEnableGPUBasedValidation(TRUE);
 
   ComPtr<IDXGIInfoQueue> dxgi_info_queue;
   if FAILED(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&dxgi_info_queue))) {
@@ -991,7 +992,12 @@ auto Renderer::DrawFrame(GpuScene const& scene,
     cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
       0, mesh.meshlet_count, offsetof(DrawParams, meshlet_count) / 4);
 
-    auto constexpr max_dispatch_thread_group_count{65535};
+    std::size_t constexpr max_dispatch_thread_group_count{1 << 22};
+    std::size_t constexpr max_dispatch_dim_size{65535};
+
+    if (mesh.meshlet_count > max_dispatch_thread_group_count) {
+      continue;
+    }
 
     auto const pack_count{
       std::min(MESHLET_MAX_VERTS / mesh.last_meshlet.vert_count,
@@ -1027,7 +1033,11 @@ auto Renderer::DrawFrame(GpuScene const& scene,
         static_cast<std::uint32_t>(std::ceilf(
           group_count_per_instance * batch_instance_count))
       };
-      cmd_lists_[frame_idx_]->DispatchMesh(group_count, 1, 1);
+
+      auto const dispatch_y{static_cast<UINT>(1 + group_count / max_dispatch_dim_size)};
+      auto const dispatch_x{static_cast<UINT>(1 + (group_count + max_dispatch_dim_size - 1) % max_dispatch_dim_size)};
+
+      cmd_lists_[frame_idx_]->DispatchMesh(dispatch_x, dispatch_y, 1);
     }
   }
 
