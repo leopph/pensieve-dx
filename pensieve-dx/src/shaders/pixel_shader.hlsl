@@ -3,7 +3,12 @@
 #include "material.hlsli"
 #include "ps_in.hlsli"
 
-static const float3 kLightDir = normalize(float3(0, 0, 1));
+static const uint kLightCount = 6;
+static const float3 kLightDirs[kLightCount] = {
+  float3(1, 0, 0), float3(0, 1, 0), float3(0, 0, 1),
+  float3(-1, 0, 0), float3(0, -1, 0), float3(0, 0, -1)
+};
+
 static const float kPi = 3.14159265;
 static const float3 kCameraPos = float3(0, 0, -5);
 static const float kGamma = 2.2;
@@ -62,30 +67,36 @@ float4 main(const PsIn ps_in) : SV_Target {
 
   const float3 f0 = lerp(0.04, base_color, metallic);
 
-  const float3 dir_to_light = normalize(-kLightDir);
   const float3 dir_to_cam = normalize(kCameraPos - ps_in.position_ws);
-  const float3 halfway = normalize(dir_to_cam + dir_to_light);
-
-  const float n_dot_l = saturate(dot(normal, dir_to_light));
   const float n_dot_v = saturate(dot(normal, dir_to_cam));
-  const float n_dot_h = saturate(dot(normal, halfway));
-  const float v_dot_h = saturate(dot(dir_to_cam, halfway));
-
-  const float n = TrowbridgeReitzGgxNdf(n_dot_h, roughness);
-  const float g = SmithGeometry(n_dot_v, n_dot_l, roughness);
-  const float3 f = SchlickFresnel(v_dot_h, f0);
 
   const float3 diffuse = base_color / kPi;
-  const float3 specular = n * g * f / (4 * n_dot_l * n_dot_v + 0.0001);
 
-  const float3 specular_factor = f;
-  const float3 diffuse_factor = (1 - specular_factor) * (1 - metallic);
+  float3 direct_lighting = 0;
 
-  const float3 ambient = 0.03 * base_color;
+  for (uint i = 0; i < kLightCount; i++) {
+    const float3 dir_to_light = normalize(-kLightDirs[i]);
+    const float3 halfway = normalize(dir_to_cam + dir_to_light);
 
-  const float3 lighting = ambient + n_dot_l * (diffuse_factor * diffuse + specular);
+    const float n_dot_l = saturate(dot(normal, dir_to_light));
+    const float n_dot_h = saturate(dot(normal, halfway));
+    const float v_dot_h = saturate(dot(dir_to_cam, halfway));
 
-  float3 out_color = lighting + emission;
+    const float n = TrowbridgeReitzGgxNdf(n_dot_h, roughness);
+    const float g = SmithGeometry(n_dot_v, n_dot_l, roughness);
+    const float3 f = SchlickFresnel(v_dot_h, f0);
+
+    const float3 specular = n * g * f / (4 * n_dot_l * n_dot_v + 0.0001);
+
+    const float3 specular_factor = f;
+    const float3 diffuse_factor = (1 - specular_factor) * (1 - metallic);
+
+    direct_lighting += n_dot_l * (diffuse_factor * diffuse + specular);
+  }
+
+  const float3 ambient_lighting = 0.03 * base_color;
+
+  float3 out_color = ambient_lighting + direct_lighting + emission;
   out_color /= out_color + 1;
   out_color = pow(out_color, 1 / kGamma);
 
