@@ -228,22 +228,6 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
     return std::unexpected{"Failed to create resource descriptor heap."};
   }
 
-  /*auto const res_desc_inc{
-    device->GetDescriptorHandleIncrementSize(
-      D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
-  };
-
-  auto const res_desc_heap_cpu_start{
-    res_desc_heap->GetCPUDescriptorHandleForHeapStart()
-  };
-
-  // This crashes SRV creation later
-  for (UINT i{0}; i < res_desc_heap_size_ - 1; i++) {
-    *std::bit_cast<UINT*>(CD3DX12_CPU_DESCRIPTOR_HANDLE{
-      res_desc_heap_cpu_start, static_cast<INT>(i), res_desc_inc
-    }) = i + 1;
-  }*/
-
   std::array<ComPtr<ID3D12CommandAllocator>, max_frames_in_flight_> cmd_allocs;
   std::array<ComPtr<ID3D12GraphicsCommandList7>, max_frames_in_flight_>
     cmd_lists;
@@ -1278,24 +1262,12 @@ auto Renderer::CreateDepthBufferDsv() const -> void {
 }
 
 auto Renderer::AllocateResourceDescriptorIndex() -> UINT {
-  /* This crashes SRV creation
-  auto const ret{next_free_res_desc_idx_};
-  next_free_res_desc_idx_ = *std::bit_cast<UINT*>(CD3DX12_CPU_DESCRIPTOR_HANDLE{
-    res_desc_heap_cpu_start_, static_cast<INT>(next_free_res_desc_idx_),
-    rtv_inc_
-  }.ptr);
-  return ret;*/
   auto const ret{res_desc_heap_free_indices_.back()};
   res_desc_heap_free_indices_.pop_back();
   return ret;
 }
 
 auto Renderer::FreeResourceDescriptorIndex(UINT const idx) -> void {
-  /* This crashes SRV creation
-  *std::bit_cast<UINT*>(CD3DX12_CPU_DESCRIPTOR_HANDLE{
-    res_desc_heap_cpu_start_, static_cast<INT>(idx), rtv_inc_
-  }) = next_free_res_desc_idx_;
-  next_free_res_desc_idx_ = idx;*/
   res_desc_heap_free_indices_.push_back(idx);
 }
 }
