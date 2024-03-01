@@ -31,7 +31,7 @@ struct GpuMesh {
 
   Microsoft::WRL::ComPtr<D3D12MA::Allocation> inst_buf;
 
-  MeshletData last_meshlet;
+  std::vector<MeshletData> meshlets;
 
   UINT pos_buf_srv_idx;
   UINT norm_buf_srv_idx;

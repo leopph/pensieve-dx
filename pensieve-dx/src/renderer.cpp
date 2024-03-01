@@ -38,7 +38,6 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
   }
 
   debug->EnableDebugLayer();
-  debug->SetEnableGPUBasedValidation(TRUE);
 
   ComPtr<IDXGIInfoQueue> dxgi_info_queue;
   if FAILED(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&dxgi_info_queue))) {
@@ -860,7 +859,7 @@ auto Renderer::CreateGpuScene(
                       gpu_mesh.inst_buf_srv_idx);
 
     gpu_mesh.instance_count = static_cast<UINT>(instance_count);
-    gpu_mesh.last_meshlet = mesh_data.meshlets.back();
+    gpu_mesh.meshlets = mesh_data.meshlets;
   }
 
   return gpu_scene;
@@ -999,57 +998,67 @@ auto Renderer::DrawFrame(GpuScene const& scene,
     cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
       0, mesh.meshlet_count, offsetof(DrawParams, meshlet_count) / 4);
 
-    std::size_t constexpr max_dispatch_thread_group_count{1 << 22};
-    std::size_t constexpr max_dispatch_dim_size{65535};
+    std::size_t constexpr max_dispatch_thread_group_count{65535};
 
-    if (mesh.meshlet_count > max_dispatch_thread_group_count) {
-      continue;
-    }
-
-    auto const pack_count{
-      std::min(MESHLET_MAX_VERTS / mesh.last_meshlet.vert_count,
-               MESHLET_MAX_PRIMS / mesh.last_meshlet.prim_count)
-    };
-    auto const group_count_per_instance{
-      static_cast<float>(mesh.meshlet_count - 1) + 1.0f / static_cast<float>(
-        pack_count)
-    };
-    auto const max_instance_count_per_batch{
-      static_cast<std::uint32_t>(static_cast<float>(
-        max_dispatch_thread_group_count) / group_count_per_instance)
-    };
-    auto const dispatch_count{
-      DivRoundUp(mesh.instance_count, max_instance_count_per_batch)
-    };
-
-    for (std::size_t i{0}; i < dispatch_count; i++) {
-      auto const batch_instance_offset{
-        static_cast<UINT>(i * max_instance_count_per_batch)
-      };
-      auto const batch_instance_count{
-        std::min(mesh.instance_count - batch_instance_offset,
-                 max_instance_count_per_batch)
+    for (std::size_t meshlet_offset{0}; meshlet_offset < mesh.meshlet_count;
+         meshlet_offset += max_dispatch_thread_group_count) {
+      auto const meshlet_count{
+        std::min(mesh.meshlet_count - meshlet_offset,
+                 max_dispatch_thread_group_count)
       };
 
       cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
-        0, batch_instance_offset, offsetof(DrawParams, instance_offset) / 4);
+        0, static_cast<UINT>(meshlet_count),
+        offsetof(DrawParams, meshlet_count) / 4);
       cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
-        0, batch_instance_count, offsetof(DrawParams, inst_count) / 4);
+        0, static_cast<UINT>(meshlet_offset),
+        offsetof(DrawParams, meshlet_offset) / 4);
 
-      auto const group_count{
-        static_cast<std::uint32_t>(std::ceilf(
-          group_count_per_instance * batch_instance_count))
+      auto const& last_meshlet{
+        mesh.meshlets[meshlet_offset + meshlet_count - 1]
       };
 
-      auto const dispatch_y{
-        static_cast<UINT>(1 + group_count / max_dispatch_dim_size)
-      };
-      auto const dispatch_x{
-        static_cast<UINT>(1 + (group_count + max_dispatch_dim_size - 1) %
-          max_dispatch_dim_size)
+      auto const pack_count{
+        std::min(MESHLET_MAX_VERTS / last_meshlet.vert_count,
+                 MESHLET_MAX_PRIMS / last_meshlet.prim_count)
       };
 
-      cmd_lists_[frame_idx_]->DispatchMesh(dispatch_x, dispatch_y, 1);
+      auto const group_count_per_instance{
+        static_cast<float>(meshlet_count - 1) + 1.0f / static_cast<float>(
+          pack_count)
+      };
+
+      auto const max_instance_count_per_batch{
+        static_cast<std::uint32_t>(static_cast<float>(
+          max_dispatch_thread_group_count) / group_count_per_instance)
+      };
+
+      auto const dispatch_count{
+        DivRoundUp(mesh.instance_count, max_instance_count_per_batch)
+      };
+
+      for (std::size_t i{0}; i < dispatch_count; i++) {
+        auto const batch_instance_offset{
+          static_cast<UINT>(i * max_instance_count_per_batch)
+        };
+
+        auto const batch_instance_count{
+          std::min(mesh.instance_count - batch_instance_offset,
+                   max_instance_count_per_batch)
+        };
+
+        cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
+          0, batch_instance_offset, offsetof(DrawParams, instance_offset) / 4);
+        cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
+          0, batch_instance_count, offsetof(DrawParams, instance_count) / 4);
+
+        auto const group_count{
+          static_cast<std::uint32_t>(std::ceilf(
+            group_count_per_instance * batch_instance_count))
+        };
+
+        cmd_lists_[frame_idx_]->DispatchMesh(group_count, 1, 1);
+      }
     }
   }
 
