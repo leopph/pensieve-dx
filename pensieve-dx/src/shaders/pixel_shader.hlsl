@@ -33,35 +33,34 @@ float4 main(const PsIn ps_in) : SV_Target {
   float metallic = material.metallic;
   float roughness = material.roughness;
   float3 emission = material.emission_color;
+  float3 normal = normalize(ps_in.normal_ws);
 
-  if (material.base_color_map_idx != INVALID_RESOURCE_IDX) {
-    const Texture2D base_color_map = ResourceDescriptorHeap[material.base_color_map_idx];
-    base_color *= pow(base_color_map.Sample(g_sampler, ps_in.uv).rgb, kGamma);
-  }
+  if (g_draw_params.uv_buf_idx != INVALID_RESOURCE_IDX) {
+    if (material.base_color_map_idx != INVALID_RESOURCE_IDX) {
+      const Texture2D base_color_map = ResourceDescriptorHeap[material.base_color_map_idx];
+      base_color *= pow(base_color_map.Sample(g_sampler, ps_in.uv).rgb, kGamma);
+    }
 
-  if (material.metallic_map_idx != INVALID_RESOURCE_IDX) {
-    const Texture2D metallic_map = ResourceDescriptorHeap[material.metallic_map_idx];
-    metallic *= metallic_map.Sample(g_sampler, ps_in.uv).r;
-  }
+    if (material.metallic_map_idx != INVALID_RESOURCE_IDX) {
+      const Texture2D metallic_map = ResourceDescriptorHeap[material.metallic_map_idx];
+      metallic *= metallic_map.Sample(g_sampler, ps_in.uv).r;
+    }
 
-  if (material.roughness_map_idx != INVALID_RESOURCE_IDX) {
-    const Texture2D roughness_map = ResourceDescriptorHeap[material.roughness_map_idx];
-    roughness *= roughness_map.Sample(g_sampler, ps_in.uv).r;
-  }
+    if (material.roughness_map_idx != INVALID_RESOURCE_IDX) {
+      const Texture2D roughness_map = ResourceDescriptorHeap[material.roughness_map_idx];
+      roughness *= roughness_map.Sample(g_sampler, ps_in.uv).r;
+    }
 
-  if (material.emission_map_idx != INVALID_RESOURCE_IDX) {
-    const Texture2D emission_map = ResourceDescriptorHeap[material.emission_map_idx];
-    emission *= emission_map.Sample(g_sampler, ps_in.uv).rgb;
-  }
+    if (material.emission_map_idx != INVALID_RESOURCE_IDX) {
+      const Texture2D emission_map = ResourceDescriptorHeap[material.emission_map_idx];
+      emission *= emission_map.Sample(g_sampler, ps_in.uv).rgb;
+    }
 
-  float3 normal;
-
-  if (material.normal_map_idx != INVALID_RESOURCE_IDX) {
-    const Texture2D normal_map = ResourceDescriptorHeap[material.normal_map_idx];
-    normal = normal_map.Sample(g_sampler, ps_in.uv).rgb * 2 - 1;
-    normal = normalize(mul(normalize(normal), ps_in.tbn_mtx_ws));
-  } else {
-    normal = normalize(ps_in.normal_ws);
+    if (material.normal_map_idx != INVALID_RESOURCE_IDX && g_draw_params.tan_buf_idx != INVALID_RESOURCE_IDX) {
+      const Texture2D normal_map = ResourceDescriptorHeap[material.normal_map_idx];
+      normal = normal_map.Sample(g_sampler, ps_in.uv).rgb * 2 - 1;
+      normal = normalize(mul(normalize(normal), ps_in.tbn_mtx_ws));
+    }
   }
 
   const float3 f0 = lerp(0.04, base_color, metallic);
