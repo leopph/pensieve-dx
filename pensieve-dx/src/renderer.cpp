@@ -916,26 +916,18 @@ auto Renderer::DrawFrame(GpuScene const& scene,
     };
   }
 
-  std::array const rt_barriers{
-    D3D12_TEXTURE_BARRIER{
+  D3D12_TEXTURE_BARRIER const rt_barrier{
       D3D12_BARRIER_SYNC_NONE, D3D12_BARRIER_SYNC_RENDER_TARGET,
       D3D12_BARRIER_ACCESS_NO_ACCESS, D3D12_BARRIER_ACCESS_RENDER_TARGET,
       D3D12_BARRIER_LAYOUT_UNDEFINED, D3D12_BARRIER_LAYOUT_RENDER_TARGET,
       swap_chain_buffers_[back_buf_idx].Get(), {0, 1, 0, 1, 0, 1},
       D3D12_TEXTURE_BARRIER_FLAG_NONE
-    },
-    D3D12_TEXTURE_BARRIER{
-      D3D12_BARRIER_SYNC_NONE, D3D12_BARRIER_SYNC_DEPTH_STENCIL,
-      D3D12_BARRIER_ACCESS_NO_ACCESS, D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE,
-      D3D12_BARRIER_LAYOUT_UNDEFINED, D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE,
-      depth_buffer_.Get(), {0, 1, 0, 1, 0, 1}, D3D12_TEXTURE_BARRIER_FLAG_NONE
-    },
   };
 
   D3D12_BARRIER_GROUP const rt_barrier_group{
     .Type = D3D12_BARRIER_TYPE_TEXTURE,
-    .NumBarriers = static_cast<UINT32>(rt_barriers.size()),
-    .pTextureBarriers = rt_barriers.data()
+    .NumBarriers = 1,
+    .pTextureBarriers = &rt_barrier
   };
 
   cmd_lists_[frame_idx_]->Barrier(1, &rt_barrier_group);
@@ -1254,7 +1246,7 @@ auto Renderer::CreateDepthBuffer(ID3D12Device10* const device,
 
   if (FAILED(
     device->CreateCommittedResource3(&default_heap_props, D3D12_HEAP_FLAG_NONE ,
-      &depth_buf_desc, D3D12_BARRIER_LAYOUT_COMMON, &depth_buf_clear_value,
+      &depth_buf_desc, D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE, &depth_buf_clear_value,
       nullptr, 0, nullptr, IID_PPV_ARGS(&depth_buffer)))) {
     return std::unexpected{"Failed to create depth buffer."};
   }
