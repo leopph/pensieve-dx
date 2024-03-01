@@ -43,7 +43,7 @@ auto LoadScene(
   importer.SetPropertyInteger(
     AI_CONFIG_PP_SBP_REMOVE, aiPrimitiveType_POINT | aiPrimitiveType_LINE);
   auto const scene{
-    importer.ReadFile(path.string().c_str(),
+    importer.ReadFile(path.string().c_str(), aiProcess_CalcTangentSpace |
                       aiProcess_JoinIdenticalVertices | aiProcess_Triangulate |
                       aiProcess_RemoveComponent | aiProcess_GenNormals |
                       aiProcess_ValidateDataStructure |
