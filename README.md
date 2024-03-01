@@ -11,3 +11,7 @@ The following third party libraries are used:
 - stb_image for texture loading
 - DirectXMesh for meshlet generation
 - D3D12 Memory Allocator for GPU memory management
+
+![A screenshot of 400 000 cubes](screenshots/cubes.jpg)
+![A screenshot of a community model of the Mark XVII Iron Man Armor](screenshots/mark17.jpg)
+![A screenshot of the Stanford Lucy scan](screenshots/lucy.jpg)
