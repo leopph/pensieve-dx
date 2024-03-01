@@ -46,6 +46,7 @@ auto LoadScene(
     importer.ReadFile(path.string().c_str(),
                       aiProcess_JoinIdenticalVertices | aiProcess_Triangulate |
                       aiProcess_RemoveComponent | aiProcess_GenNormals |
+                      aiProcess_ValidateDataStructure |
                       aiProcess_RemoveRedundantMaterials | aiProcess_SortByPType
                       | aiProcess_GenUVCoords | aiProcess_FindInstances |
                       aiProcess_OptimizeMeshes | aiProcess_OptimizeGraph |
