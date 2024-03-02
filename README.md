@@ -9,6 +9,7 @@ You have to use the included meshlet generator to create a meshletized version o
 The following third party libraries are used:
 - Assimp for model loading
 - stb_image for texture loading
+- DirectXMath for geometric transformations
 - DirectXMesh for meshlet generation
 - D3D12 Memory Allocator for GPU memory management
 
