@@ -9,6 +9,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <ranges>
 #include <span>
 #include <stack>
 #include <string>
