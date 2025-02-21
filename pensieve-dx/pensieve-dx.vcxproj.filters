@@ -42,10 +42,10 @@
     <None Include="src\shaders\ps_in.hlsli" />
     <None Include="src\shaders\material.hlsli" />
     <None Include="src\shaders\globals.hlsli" />
-    <None Include="packages.config" />
     <None Include="src\shaders\common.hlsli" />
     <None Include="src\shaders\meshlet.hlsli" />
     <None Include="src\shaders\instance_buffer.hlsli" />
+    <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\renderer.hpp">
