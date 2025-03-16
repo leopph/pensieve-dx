@@ -6,7 +6,5 @@
 #define row_major
 #define uint2 DirectX::XMUINT2
 
-#include "shaders/material.hlsli"
-#include "shaders/draw_params.hlsli"
 #include "shaders/common.hlsli"
-#include "shaders/instance_buffer.hlsli"
+#include "shaders/types.hlsli"

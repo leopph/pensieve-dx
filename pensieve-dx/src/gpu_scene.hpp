@@ -31,6 +31,8 @@ struct GpuMesh {
 
   Microsoft::WRL::ComPtr<D3D12MA::Allocation> inst_buf;
 
+  Microsoft::WRL::ComPtr<D3D12MA::Allocation> mesh_buf;
+
   std::vector<MeshletData> meshlets;
 
   UINT pos_buf_srv_idx;
@@ -46,6 +48,8 @@ struct GpuMesh {
 
   UINT inst_buf_srv_idx;
   UINT instance_count;
+
+  UINT mesh_buf_cbv_idx;
 };
 
 struct GpuScene {

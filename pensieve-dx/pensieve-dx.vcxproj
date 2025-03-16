@@ -119,12 +119,8 @@
   <ItemGroup>
     <None Include="packages.config" />
     <None Include="src\shaders\common.hlsli" />
-    <None Include="src\shaders\draw_params.hlsli" />
-    <None Include="src\shaders\globals.hlsli" />
-    <None Include="src\shaders\instance_buffer.hlsli" />
-    <None Include="src\shaders\material.hlsli" />
-    <None Include="src\shaders\meshlet.hlsli" />
-    <None Include="src\shaders\ps_in.hlsli" />
+    <None Include="src\shaders\object_opaque.hlsli" />
+    <None Include="src\shaders\types.hlsli" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\camera.hpp" />
@@ -137,13 +133,17 @@
     <ClInclude Include="src\window.hpp" />
   </ItemGroup>
   <ItemGroup>
-    <FxCompile Include="src\shaders\mesh_shader.hlsl">
+    <FxCompile Include="src\shaders\object_opaque_ms.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Mesh</ShaderType>
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Mesh</ShaderType>
+      <EntryPointName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">ms_main</EntryPointName>
+      <EntryPointName Condition="'$(Configuration)|$(Platform)'=='Release|x64'">ms_main</EntryPointName>
     </FxCompile>
-    <FxCompile Include="src\shaders\pixel_shader.hlsl">
+    <FxCompile Include="src\shaders\object_opaque_ps.hlsl">
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Pixel</ShaderType>
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Pixel</ShaderType>
+      <EntryPointName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">ps_main</EntryPointName>
+      <EntryPointName Condition="'$(Configuration)|$(Platform)'=='Release|x64'">ps_main</EntryPointName>
     </FxCompile>
   </ItemGroup>
   <ItemGroup>

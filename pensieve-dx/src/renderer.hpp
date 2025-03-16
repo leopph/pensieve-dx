@@ -7,15 +7,15 @@
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
-#include <Windows.h>
 #include <d3d12.h>
 #include <D3D12MemAlloc.h>
 #include <dxgi1_6.h>
+#include <Windows.h>
 #include <wrl/client.h>
 
 #include "camera.hpp"
-#include "scene_data.hpp"
 #include "gpu_scene.hpp"
+#include "scene_data.hpp"
 
 namespace pensieve {
 class Renderer {
@@ -61,7 +61,9 @@ private:
            Microsoft::WRL::ComPtr<ID3D12RootSignature> root_sig,
            Microsoft::WRL::ComPtr<ID3D12PipelineState> pso,
            Microsoft::WRL::ComPtr<D3D12MA::Allocator> mem_allocator,
-           UINT swap_chain_flags, UINT present_flags);
+           UINT swap_chain_flags, UINT present_flags,
+           std::array<Microsoft::WRL::ComPtr<D3D12MA::Allocation>, max_frames_in_flight_> cam_cbs,
+           std::array<void*, max_frames_in_flight_> cam_cb_ptrs);
 
   [[nodiscard]] static auto RetrieveSwapChainBuffers(
     IDXGISwapChain4* swap_chain,
@@ -114,6 +116,10 @@ private:
   UINT64 frame_fence_val_;
   UINT swap_chain_flags_;
   UINT present_flags_;
+
+  std::array<Microsoft::WRL::ComPtr<D3D12MA::Allocation>, max_frames_in_flight_> cam_cbs_;
+  std::array<void*, max_frames_in_flight_> cam_cb_ptrs_;
+
   UINT next_free_res_desc_idx_{0};
   int frame_idx_{0};
 };

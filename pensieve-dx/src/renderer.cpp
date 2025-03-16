@@ -1,6 +1,7 @@
 #include "renderer.hpp"
 
 #include <algorithm>
+#include <array>
 //#include <bit>
 #include <cmath>
 #include <cstddef>
@@ -141,7 +142,7 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
   UINT swap_chain_flags{0};
   UINT present_flags{0};
 
-  if (BOOL is_tearing_supported{FALSE}; SUCCEEDED(
+  if (auto is_tearing_supported{FALSE}; SUCCEEDED(
       factory->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &
         is_tearing_supported, sizeof(is_tearing_supported))) &&
     is_tearing_supported) {
@@ -258,15 +259,17 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
     return std::unexpected{"Failed to create frame fence."};
   }
 
-  CD3DX12_ROOT_PARAMETER1 root_param;
-  root_param.InitAsConstants(sizeof(DrawParams) / 4, 0, 0,
-                             D3D12_SHADER_VISIBILITY_ALL);
+  std::array<CD3DX12_ROOT_PARAMETER1, 4> root_params;
+  root_params[0].InitAsConstants(sizeof(DrawParams) / 4, 0, 0, D3D12_SHADER_VISIBILITY_MESH);
+  root_params[1].InitAsConstantBufferView(1, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC, D3D12_SHADER_VISIBILITY_ALL);
+  root_params[2].InitAsConstantBufferView(2, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC, D3D12_SHADER_VISIBILITY_ALL);
+  root_params[3].InitAsConstantBufferView(3, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC, D3D12_SHADER_VISIBILITY_PIXEL);
   CD3DX12_STATIC_SAMPLER_DESC const sampler_desc{0};
 
   D3D12_VERSIONED_ROOT_SIGNATURE_DESC const root_sig_desc{
     .Version = D3D_ROOT_SIGNATURE_VERSION_1_1,
     .Desc_1_1 = {
-      1, &root_param, 1, &sampler_desc,
+      static_cast<UINT>(root_params.size()), root_params.data(), 1, &sampler_desc,
       D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED
     }
   };
@@ -300,7 +303,7 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
   std::filesystem::path const exe_path{exe_path_str};
 
   std::ifstream ms_file{
-    exe_path.parent_path() / "mesh_shader.cso", std::ios::in | std::ios::binary
+    exe_path.parent_path() / "object_opaque_ms.cso", std::ios::in | std::ios::binary
   };
 
   if (!ms_file.is_open()) {
@@ -312,7 +315,7 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
   };
 
   std::ifstream ps_file{
-    exe_path.parent_path() / "pixel_shader.cso", std::ios::in | std::ios::binary
+    exe_path.parent_path() / "object_opaque_ps.cso", std::ios::in | std::ios::binary
   };
 
   if (!ps_file.is_open()) {
@@ -361,20 +364,52 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
     return std::unexpected{"Failed to create memory allocator."};
   }
 
+  std::array<ComPtr<D3D12MA::Allocation>, max_frames_in_flight_> cam_cbs;
+  std::array<void*, max_frames_in_flight_> cam_cb_ptrs;
+
+  for (auto i{0}; i < max_frames_in_flight_; i++) {
+    constexpr D3D12MA::ALLOCATION_DESC cam_cb_alloc_desc{
+      .Flags = D3D12MA::ALLOCATION_FLAG_NONE, .HeapType = D3D12_HEAP_TYPE_UPLOAD,
+      .ExtraHeapFlags = D3D12_HEAP_FLAG_NONE, .CustomPool = nullptr, .pPrivateData = nullptr
+    };
+
+    D3D12_RESOURCE_DESC1 const cam_cb_res_desc{
+      CD3DX12_RESOURCE_DESC1::Buffer(sizeof(CameraParams))
+    };
+
+    if (FAILED(
+      mem_allocator->CreateResource3(&cam_cb_alloc_desc, &cam_cb_res_desc,D3D12_BARRIER_LAYOUT_UNDEFINED, nullptr, 0,
+        nullptr, &cam_cbs[i],IID_NULL, nullptr))) {
+      return std::unexpected{
+        std::format("Failed to create camera constant buffer {}.", i)
+      };
+    }
+
+    if (FAILED(
+      cam_cbs[i]->GetResource()->Map(0, nullptr, &cam_cb_ptrs[i]))) {
+      return std::unexpected{
+        std::format("Failed to map camera constant buffer {}.", i)
+      };
+    }
+  }
+
   return Renderer{
     std::move(factory), std::move(device), std::move(direct_queue),
     std::move(swap_chain), std::move(swap_chain_buffers),
     std::move(depth_buffer), std::move(rtv_heap), std::move(dsv_heap),
     std::move(res_desc_heap), std::move(cmd_allocs), std::move(cmd_lists),
     std::move(frame_fence), std::move(root_sig), std::move(pso),
-    std::move(mem_allocator), swap_chain_flags, present_flags
+    std::move(mem_allocator), swap_chain_flags, present_flags,
+    std::move(cam_cbs), cam_cb_ptrs
   };
 }
+
+
 
 auto Renderer::CreateGpuScene(
   SceneData const& scene_data) -> std::expected<GpuScene, std::string> {
   // Make sure this is big enough to hold any single resource.
-  auto constexpr upload_buffer_size{1'000'000'000};
+  auto constexpr upload_buffer_size{2'000'000'000};
 
   auto const res_desc_heap_cpu_start{
     res_desc_heap_->GetCPUDescriptorHandleForHeapStart()
@@ -842,12 +877,31 @@ auto Renderer::CreateGpuScene(
                       gpu_mesh.inst_buf->GetResource(),
                       gpu_mesh.inst_buf_srv_idx);
 
+    MeshParams const mesh_params{
+      .pos_buf_idx = gpu_mesh.pos_buf_srv_idx,
+      .norm_buf_idx = gpu_mesh.norm_buf_srv_idx,
+      .tan_buf_idx = gpu_mesh.tan_buf_srv_idx.value_or(INVALID_RESOURCE_IDX),
+      .uv_buf_idx = gpu_mesh.uv_buf_srv_idx.value_or(INVALID_RESOURCE_IDX),
+      .vertex_idx_buf_idx = gpu_mesh.vertex_idx_buf_srv_idx,
+      .prim_idx_buf_idx = gpu_mesh.prim_idx_buf_srv_idx,
+      .meshlet_buf_idx = gpu_mesh.meshlet_buf_srv_idx,
+      .inst_buf_idx = gpu_mesh.inst_buf_srv_idx,
+    };
+
+    std::memcpy(upload_buffer_ptr, &mesh_params, sizeof(mesh_params));
+
+    if (auto const exp{create_buffer_from_upload_data(sizeof(mesh_params), gpu_mesh.mesh_buf)}; !exp) {
+      return std::unexpected{std::format("Failed to create mesh {} parameters buffer: {}", idx, exp.error())};
+    }
+
     gpu_mesh.instance_count = static_cast<UINT>(instance_count);
     gpu_mesh.meshlets = mesh_data.meshlets;
   }
 
   return gpu_scene;
 }
+
+
 
 auto Renderer::DrawFrame(GpuScene const& scene,
                          Camera const& cam) -> std::expected<
@@ -901,11 +955,11 @@ auto Renderer::DrawFrame(GpuScene const& scene,
   }
 
   D3D12_TEXTURE_BARRIER const rt_barrier{
-      D3D12_BARRIER_SYNC_NONE, D3D12_BARRIER_SYNC_RENDER_TARGET,
-      D3D12_BARRIER_ACCESS_NO_ACCESS, D3D12_BARRIER_ACCESS_RENDER_TARGET,
-      D3D12_BARRIER_LAYOUT_UNDEFINED, D3D12_BARRIER_LAYOUT_RENDER_TARGET,
-      swap_chain_buffers_[back_buf_idx].Get(), {0, 1, 0, 1, 0, 1},
-      D3D12_TEXTURE_BARRIER_FLAG_NONE
+    D3D12_BARRIER_SYNC_NONE, D3D12_BARRIER_SYNC_RENDER_TARGET,
+    D3D12_BARRIER_ACCESS_NO_ACCESS, D3D12_BARRIER_ACCESS_RENDER_TARGET,
+    D3D12_BARRIER_LAYOUT_UNDEFINED, D3D12_BARRIER_LAYOUT_RENDER_TARGET,
+    swap_chain_buffers_[back_buf_idx].Get(), {0, 1, 0, 1, 0, 1},
+    D3D12_TEXTURE_BARRIER_FLAG_NONE
   };
 
   D3D12_BARRIER_GROUP const rt_barrier_group{
@@ -943,36 +997,19 @@ auto Renderer::DrawFrame(GpuScene const& scene,
   cmd_lists_[frame_idx_]->ClearDepthStencilView(
     dsv_cpu_handle_, D3D12_CLEAR_FLAG_DEPTH, 0.0f, 0, 0, nullptr);
 
-  cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstants(
-    0, 16, view_proj_mtx.m, offsetof(DrawParams, view_proj_mtx) / 4);
-  cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstants(
-    0, 3, &cam_pos.x, offsetof(DrawParams, camera_pos) / 4);
+  CameraParams const cam_params{
+    .view_proj_mtx = view_proj_mtx,
+    .camera_pos = cam_pos
+  };
+  std::memcpy(cam_cb_ptrs_[frame_idx_], &cam_params, sizeof(cam_params));
+
+  cmd_lists_[frame_idx_]->SetGraphicsRootConstantBufferView(
+    1, cam_cbs_[frame_idx_]->GetResource()->GetGPUVirtualAddress());
 
   for (auto const& mesh : scene.meshes) {
-    cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
-      0, mesh.pos_buf_srv_idx, offsetof(DrawParams, pos_buf_idx) / 4);
-    cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
-      0, mesh.norm_buf_srv_idx, offsetof(DrawParams, norm_buf_idx) / 4);
-    cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
-      0, mesh.tan_buf_srv_idx.value_or(INVALID_RESOURCE_IDX),
-      offsetof(DrawParams, tan_buf_idx) / 4);
-    cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
-      0, mesh.uv_buf_srv_idx.value_or(INVALID_RESOURCE_IDX),
-      offsetof(DrawParams, uv_buf_idx) / 4);
-    cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
-      0, mesh.vertex_idx_buf_srv_idx,
-      offsetof(DrawParams, vertex_idx_buf_idx) / 4);
-    cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
-      0, mesh.prim_idx_buf_srv_idx, offsetof(DrawParams, prim_idx_buf_idx) / 4);
-    cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
-      0, mesh.meshlet_buf_srv_idx, offsetof(DrawParams, meshlet_buf_idx) / 4);
-    cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
-      0, scene.materials[mesh.mtl_idx].cbv_idx,
-      offsetof(DrawParams, mtl_buf_idx) / 4);
-    cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
-      0, mesh.inst_buf_srv_idx, offsetof(DrawParams, inst_buf_idx) / 4);
-    cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
-      0, mesh.meshlet_count, offsetof(DrawParams, meshlet_count) / 4);
+    cmd_lists_[frame_idx_]->SetGraphicsRootConstantBufferView(2, mesh.mesh_buf->GetResource()->GetGPUVirtualAddress());
+    cmd_lists_[frame_idx_]->SetGraphicsRootConstantBufferView(
+      3, scene.materials[mesh.mtl_idx].res->GetResource()->GetGPUVirtualAddress());
 
     std::size_t constexpr max_dispatch_thread_group_count{65535};
 
@@ -1082,6 +1119,8 @@ auto Renderer::DrawFrame(GpuScene const& scene,
   return {};
 }
 
+
+
 auto Renderer::WaitForDeviceIdle() const -> std::expected<void, std::string> {
   auto constexpr initial_value{0};
   auto constexpr completed_value{initial_value + 1};
@@ -1103,6 +1142,8 @@ auto Renderer::WaitForDeviceIdle() const -> std::expected<void, std::string> {
 
   return {};
 }
+
+
 
 auto Renderer::ResizeRenderTargets() -> std::expected<void, std::string> {
   if (auto const exp{WaitForDeviceIdle()}; !exp) {
@@ -1142,6 +1183,8 @@ auto Renderer::ResizeRenderTargets() -> std::expected<void, std::string> {
   return {};
 }
 
+
+
 Renderer::Renderer(ComPtr<IDXGIFactory7> factory, ComPtr<ID3D12Device10> device,
                    ComPtr<ID3D12CommandQueue> direct_queue,
                    ComPtr<IDXGISwapChain4> swap_chain,
@@ -1158,7 +1201,9 @@ Renderer::Renderer(ComPtr<IDXGIFactory7> factory, ComPtr<ID3D12Device10> device,
                    ComPtr<ID3D12RootSignature> root_sig,
                    ComPtr<ID3D12PipelineState> pso,
                    ComPtr<D3D12MA::Allocator> mem_allocator,
-                   UINT const swap_chain_flags, UINT const present_flags) :
+                   UINT const swap_chain_flags, UINT const present_flags,
+                   std::array<ComPtr<D3D12MA::Allocation>, max_frames_in_flight_> cam_cbs,
+                   std::array<void*, max_frames_in_flight_> const cam_cb_ptrs) :
   factory_{std::move(factory)}, device_{std::move(device)},
   direct_queue_{std::move(direct_queue)}, swap_chain_{std::move(swap_chain)},
   swap_chain_buffers_{std::move(swap_chain_buffers)},
@@ -1173,7 +1218,9 @@ Renderer::Renderer(ComPtr<IDXGIFactory7> factory, ComPtr<ID3D12Device10> device,
       device_->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV)
     }
   }, frame_fence_val_{frame_fence_->GetCompletedValue()},
-  swap_chain_flags_{swap_chain_flags}, present_flags_{present_flags} {
+  swap_chain_flags_{swap_chain_flags}, present_flags_{present_flags},
+  cam_cbs_{std::move(cam_cbs)},
+  cam_cb_ptrs_{cam_cb_ptrs} {
   auto const rtv_heap_cpu_start{
     rtv_heap_->GetCPUDescriptorHandleForHeapStart()
   };
@@ -1196,6 +1243,8 @@ Renderer::Renderer(ComPtr<IDXGIFactory7> factory, ComPtr<ID3D12Device10> device,
   CreateDepthBufferDsv();
 }
 
+
+
 auto Renderer::RetrieveSwapChainBuffers(IDXGISwapChain4* const swap_chain,
                                         std::span<
                                           ComPtr<ID3D12Resource2>,
@@ -1210,6 +1259,8 @@ auto Renderer::RetrieveSwapChainBuffers(IDXGISwapChain4* const swap_chain,
   }
   return {};
 }
+
+
 
 auto Renderer::CreateDepthBuffer(ID3D12Device10* const device,
                                  ComPtr<ID3D12Resource2>& depth_buffer,
@@ -1238,6 +1289,8 @@ auto Renderer::CreateDepthBuffer(ID3D12Device10* const device,
   return {};
 }
 
+
+
 auto Renderer::CreateSwapChainRtvs() const -> void {
   for (auto i{0}; i < swap_chain_buffer_count_; i++) {
     D3D12_RENDER_TARGET_VIEW_DESC constexpr rtv_desc{
@@ -1250,6 +1303,8 @@ auto Renderer::CreateSwapChainRtvs() const -> void {
   }
 }
 
+
+
 auto Renderer::CreateDepthBufferDsv() const -> void {
   D3D12_DEPTH_STENCIL_VIEW_DESC constexpr dsv_desc{
     .Format = depth_buffer_format_,
@@ -1261,11 +1316,15 @@ auto Renderer::CreateDepthBufferDsv() const -> void {
                                   dsv_cpu_handle_);
 }
 
+
+
 auto Renderer::AllocateResourceDescriptorIndex() -> UINT {
   auto const ret{res_desc_heap_free_indices_.back()};
   res_desc_heap_free_indices_.pop_back();
   return ret;
 }
+
+
 
 auto Renderer::FreeResourceDescriptorIndex(UINT const idx) -> void {
   res_desc_heap_free_indices_.push_back(idx);
