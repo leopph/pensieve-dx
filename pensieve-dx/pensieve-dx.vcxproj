@@ -109,6 +109,7 @@
     <ClCompile Include="src\error.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\renderer.cpp" />
+    <ClCompile Include="src\scene_bounds.cpp" />
     <ClCompile Include="src\scene_loading.cpp" />
     <ClCompile Include="src\window.cpp" />
     <ClCompile Include="vendor\d3d12_memory_allocator\D3D12MemAlloc.cpp">
@@ -127,6 +128,7 @@
     <ClInclude Include="src\error.hpp" />
     <ClInclude Include="src\gpu_scene.hpp" />
     <ClInclude Include="src\renderer.hpp" />
+    <ClInclude Include="src\scene_bounds.h" />
     <ClInclude Include="src\scene_loading.hpp" />
     <ClInclude Include="src\shader_interop.hpp" />
     <ClInclude Include="src\util.hpp" />

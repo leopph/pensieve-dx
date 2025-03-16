@@ -4,10 +4,12 @@
 
 namespace pensieve {
 Camera::Camera(float const vertical_degrees_fov, float const near_clip_plane,
-               float const far_clip_plane, float const distance) :
+               float const far_clip_plane, float const distance, DirectX::XMFLOAT3 const& center) :
   vertical_degrees_fov{vertical_degrees_fov}, near_clip_plane{near_clip_plane},
-  far_clip_plane{far_clip_plane}, distance{distance} {
+  far_clip_plane{far_clip_plane}, distance{distance}, center{center} {
 }
+
+
 
 auto Camera::Update(std::span<int const, 2> const mouse_delta,
                     int const mouse_wheel_deta, bool const is_mouse_hovered,

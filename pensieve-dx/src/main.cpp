@@ -1,12 +1,14 @@
-#include <iostream>
 #include <cstdlib>
-#include <limits>
+#include <iostream>
 
 #include "camera.hpp"
 #include "error.hpp"
-#include "scene_loading.hpp"
 #include "renderer.hpp"
+#include "scene_bounds.h"
+#include "scene_loading.hpp"
 #include "window.hpp"
+
+
 
 auto main(int const argc, char* argv[]) -> int {
   if (argc < 2) {
@@ -42,7 +44,9 @@ auto main(int const argc, char* argv[]) -> int {
     return EXIT_FAILURE;
   }
 
-  pensieve::Camera cam{60, 0.1f, 10'000.0f, 5.0f};
+  auto const scene_bounds{ComputeBounds(*scene_data)};
+
+  pensieve::Camera cam{60, 0.1f, 10'000.0f, scene_bounds.radius + 5.0f, scene_bounds.center};
 
   while (!window->ShouldClose()) {
     window->PollEvents();
