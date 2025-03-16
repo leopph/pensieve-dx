@@ -128,7 +128,7 @@
     <ClInclude Include="src\error.hpp" />
     <ClInclude Include="src\gpu_scene.hpp" />
     <ClInclude Include="src\renderer.hpp" />
-    <ClInclude Include="src\scene_bounds.h" />
+    <ClInclude Include="src\scene_bounds.hpp" />
     <ClInclude Include="src\scene_loading.hpp" />
     <ClInclude Include="src\shader_interop.hpp" />
     <ClInclude Include="src\util.hpp" />

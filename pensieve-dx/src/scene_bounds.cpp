@@ -1,4 +1,4 @@
-#include "scene_bounds.h"
+#include "scene_bounds.hpp"
 
 #include <limits>
 

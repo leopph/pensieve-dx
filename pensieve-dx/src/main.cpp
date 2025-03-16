@@ -4,7 +4,7 @@
 #include "camera.hpp"
 #include "error.hpp"
 #include "renderer.hpp"
-#include "scene_bounds.h"
+#include "scene_bounds.hpp"
 #include "scene_loading.hpp"
 #include "window.hpp"
 

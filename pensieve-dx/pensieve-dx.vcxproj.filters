@@ -71,7 +71,7 @@
     <ClInclude Include="src\scene_loading.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\scene_bounds.h">
+    <ClInclude Include="src\scene_bounds.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
