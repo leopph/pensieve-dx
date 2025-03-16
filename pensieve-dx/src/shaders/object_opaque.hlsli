@@ -17,14 +17,20 @@ struct PsIn {
 
 
 ConstantBuffer<DrawParams> g_draw_params : register(b0, space0);
+#ifndef DYNAMIC_CBV
 ConstantBuffer<CameraParams> g_cam_params : register(b1, space0);
 ConstantBuffer<MeshParams> g_mesh_params : register(b2, space0);
 ConstantBuffer<Material> g_material : register(b3, space0);
+#endif
 SamplerState g_sampler : register(s0, space0);
 
 
 
 PsIn CalculateVertex(uint const vertex_idx, uint const instance_idx) {
+#ifdef DYNAMIC_CBV
+  ConstantBuffer<MeshParams> const g_mesh_params = ResourceDescriptorHeap[g_draw_params.mesh_buf_idx];
+#endif
+
   StructuredBuffer<float4> const positions = ResourceDescriptorHeap[g_mesh_params.pos_buf_idx];
   float4 const position_os = positions[vertex_idx];
 
@@ -33,6 +39,10 @@ PsIn CalculateVertex(uint const vertex_idx, uint const instance_idx) {
 
   StructuredBuffer<InstanceBufferData> const instance_data_buffer = ResourceDescriptorHeap[g_mesh_params.inst_buf_idx];
   InstanceBufferData const instance_data = instance_data_buffer[g_draw_params.instance_offset + instance_idx];
+
+#ifdef DYNAMIC_CBV
+  ConstantBuffer<CameraParams> const g_cam_params = ResourceDescriptorHeap[g_draw_params.cam_buf_idx];
+#endif
 
   float4 const position_ws = mul(position_os, instance_data.model_mtx);
   float4 const position_cs = mul(position_ws, g_cam_params.view_proj_mtx);
@@ -75,8 +85,12 @@ uint3 UnpackIndices(uint const packed_indices) {
 
 [outputtopology("triangle")][numthreads(MESHLET_MAX_VERTS, 1, 1)]
 void ms_main(uint const gid : SV_GroupID, uint const gtid : SV_GroupThreadID,
-          out vertices PsIn out_verts[MESHLET_MAX_VERTS],
-          out indices uint3 out_tris[MESHLET_MAX_PRIMS]) {
+             out vertices PsIn out_verts[MESHLET_MAX_VERTS],
+             out indices uint3 out_tris[MESHLET_MAX_PRIMS]) {
+#ifdef DYNAMIC_CBV
+  ConstantBuffer<MeshParams> const g_mesh_params = ResourceDescriptorHeap[g_draw_params.mesh_buf_idx];
+#endif
+
   uint const meshlet_idx = gid / g_draw_params.instance_count;
   StructuredBuffer<Meshlet> const meshlets = ResourceDescriptorHeap[g_mesh_params.meshlet_buf_idx];
   Meshlet const meshlet = meshlets[meshlet_idx + g_draw_params.meshlet_offset];
@@ -160,6 +174,11 @@ float3 SchlickFresnel(float const v_dot_h, float3 const f0) {
 
 
 float4 ps_main(PsIn const ps_in) : SV_Target {
+#ifdef DYNAMIC_CBV
+  ConstantBuffer<MeshParams> const g_mesh_params = ResourceDescriptorHeap[g_draw_params.mesh_buf_idx];
+  ConstantBuffer<Material> const g_material = ResourceDescriptorHeap[g_draw_params.mtl_buf_idx];
+#endif
+
   float3 base_color = g_material.base_color;
   float metallic = g_material.metallic;
   float roughness = g_material.roughness;
@@ -195,6 +214,10 @@ float4 ps_main(PsIn const ps_in) : SV_Target {
   }
 
   float3 const f0 = lerp(0.04, base_color, metallic);
+
+#ifdef DYNAMIC_CBV
+  ConstantBuffer<CameraParams> const g_cam_params = ResourceDescriptorHeap[g_draw_params.cam_buf_idx];
+#endif
 
   float3 const dir_to_cam = normalize(g_cam_params.camera_pos - ps_in.position_ws);
   float const n_dot_v = saturate(dot(normal, dir_to_cam));

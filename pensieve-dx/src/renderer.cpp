@@ -259,11 +259,21 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
     return std::unexpected{"Failed to create frame fence."};
   }
 
-  std::array<CD3DX12_ROOT_PARAMETER1, 4> root_params;
-  root_params[0].InitAsConstants(sizeof(DrawParams) / 4, 0, 0, D3D12_SHADER_VISIBILITY_MESH);
-  root_params[1].InitAsConstantBufferView(1, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC, D3D12_SHADER_VISIBILITY_ALL);
-  root_params[2].InitAsConstantBufferView(2, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC, D3D12_SHADER_VISIBILITY_ALL);
-  root_params[3].InitAsConstantBufferView(3, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC, D3D12_SHADER_VISIBILITY_PIXEL);
+  std::vector<CD3DX12_ROOT_PARAMETER1> root_params;
+  root_params.emplace_back().InitAsConstants(sizeof(DrawParams) / 4, 0, 0,
+#ifdef DYNAMIC_CBV
+                                             D3D12_SHADER_VISIBILITY_ALL
+#else
+                                 D3D12_SHADER_VISIBILITY_MESH
+#endif
+  );
+
+#ifndef DYNAMIC_CBV
+  root_params.emplace_back().InitAsConstantBufferView(1, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC, D3D12_SHADER_VISIBILITY_ALL);
+  root_params.emplace_back().InitAsConstantBufferView(2, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC, D3D12_SHADER_VISIBILITY_ALL);
+  root_params.emplace_back().InitAsConstantBufferView(3, 0, D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC, D3D12_SHADER_VISIBILITY_PIXEL);
+#endif
+
   CD3DX12_STATIC_SAMPLER_DESC const sampler_desc{0};
 
   D3D12_VERSIONED_ROOT_SIGNATURE_DESC const root_sig_desc{
@@ -374,7 +384,7 @@ auto Renderer::Create(HWND const hwnd) -> std::expected<Renderer, std::string> {
     };
 
     D3D12_RESOURCE_DESC1 const cam_cb_res_desc{
-      CD3DX12_RESOURCE_DESC1::Buffer(sizeof(CameraParams))
+      CD3DX12_RESOURCE_DESC1::Buffer(NextMultipleOf<std::size_t>(256, sizeof(CameraParams)))
     };
 
     if (FAILED(
@@ -595,10 +605,7 @@ auto Renderer::CreateGpuScene(
     }
   };
 
-  auto constexpr mtl_buffer_size{
-    std::max(NextMultipleOf<UINT64>(256, sizeof(Material)),
-             NextMultipleOf<UINT64>(256, sizeof(DrawParams)))
-  };
+  auto constexpr mtl_buffer_size{NextMultipleOf<UINT64>(256, sizeof(Material))};
 
   for (auto const& [idx, mtl_data] : std::ranges::views::enumerate(
          scene_data.materials)) {
@@ -633,6 +640,7 @@ auto Renderer::CreateGpuScene(
       };
     }
 
+#ifdef DYNAMIC_CBV
     gpu_mtl.cbv_idx = AllocateResourceDescriptorIndex();
 
     D3D12_CONSTANT_BUFFER_VIEW_DESC const cbv_desc{
@@ -645,6 +653,7 @@ auto Renderer::CreateGpuScene(
                                         static_cast<INT>(gpu_mtl.cbv_idx),
                                         res_desc_inc
                                       });
+#endif
   }
 
   std::vector<std::vector<InstanceBufferData>> instance_transforms_per_mesh;
@@ -890,9 +899,27 @@ auto Renderer::CreateGpuScene(
 
     std::memcpy(upload_buffer_ptr, &mesh_params, sizeof(mesh_params));
 
-    if (auto const exp{create_buffer_from_upload_data(sizeof(mesh_params), gpu_mesh.mesh_buf)}; !exp) {
+    auto constexpr mesh_buf_size{NextMultipleOf<std::size_t>(256, sizeof(mesh_params))};
+
+    if (auto const exp{create_buffer_from_upload_data(mesh_buf_size, gpu_mesh.mesh_buf)}; !exp) {
       return std::unexpected{std::format("Failed to create mesh {} parameters buffer: {}", idx, exp.error())};
     }
+
+#ifdef DYNAMIC_CBV
+    gpu_mesh.mesh_buf_cbv_idx = AllocateResourceDescriptorIndex();
+
+    D3D12_CONSTANT_BUFFER_VIEW_DESC const mesh_buf_cbv_desc{
+      gpu_mesh.mesh_buf->GetResource()->GetGPUVirtualAddress(),
+      mesh_buf_size
+    };
+
+    device_->CreateConstantBufferView(&mesh_buf_cbv_desc, CD3DX12_CPU_DESCRIPTOR_HANDLE{
+                                        res_desc_heap_->GetCPUDescriptorHandleForHeapStart(),
+                                        static_cast<INT>(gpu_mesh.mesh_buf_cbv_idx),
+                                        device_->GetDescriptorHandleIncrementSize(
+                                          D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
+                                      });
+#endif
 
     gpu_mesh.instance_count = static_cast<UINT>(instance_count);
     gpu_mesh.meshlets = mesh_data.meshlets;
@@ -1003,13 +1030,25 @@ auto Renderer::DrawFrame(GpuScene const& scene,
   };
   std::memcpy(cam_cb_ptrs_[frame_idx_], &cam_params, sizeof(cam_params));
 
+#ifdef DYNAMIC_CBV
+  cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(0, cam_cb_heap_indices_[frame_idx_],
+                                                       offsetof(DrawParams, cam_buf_idx) / 4);
+#else
   cmd_lists_[frame_idx_]->SetGraphicsRootConstantBufferView(
     1, cam_cbs_[frame_idx_]->GetResource()->GetGPUVirtualAddress());
+#endif
 
   for (auto const& mesh : scene.meshes) {
+#ifdef DYNAMIC_CBV
+    cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(0, scene.materials[mesh.mtl_idx].cbv_idx,
+                                                         offsetof(DrawParams, mtl_buf_idx) / 4);
+    cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(0, mesh.mesh_buf_cbv_idx,
+                                                         offsetof(DrawParams, mesh_buf_idx) / 4);
+#else
     cmd_lists_[frame_idx_]->SetGraphicsRootConstantBufferView(2, mesh.mesh_buf->GetResource()->GetGPUVirtualAddress());
     cmd_lists_[frame_idx_]->SetGraphicsRootConstantBufferView(
       3, scene.materials[mesh.mtl_idx].res->GetResource()->GetGPUVirtualAddress());
+#endif
 
     std::size_t constexpr max_dispatch_thread_group_count{65535};
 
@@ -1020,12 +1059,10 @@ auto Renderer::DrawFrame(GpuScene const& scene,
                  max_dispatch_thread_group_count)
       };
 
-      cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
-        0, static_cast<UINT>(meshlet_count),
-        offsetof(DrawParams, meshlet_count) / 4);
-      cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
-        0, static_cast<UINT>(meshlet_offset),
-        offsetof(DrawParams, meshlet_offset) / 4);
+      cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(0, static_cast<UINT>(meshlet_count),
+                                                           offsetof(DrawParams, meshlet_count) / 4);
+      cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(0, static_cast<UINT>(meshlet_offset),
+                                                           offsetof(DrawParams, meshlet_offset) / 4);
 
       auto const& last_meshlet{
         mesh.meshlets[meshlet_offset + meshlet_count - 1]
@@ -1060,10 +1097,10 @@ auto Renderer::DrawFrame(GpuScene const& scene,
                    max_instance_count_per_batch)
         };
 
-        cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
-          0, batch_instance_offset, offsetof(DrawParams, instance_offset) / 4);
-        cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(
-          0, batch_instance_count, offsetof(DrawParams, instance_count) / 4);
+        cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(0, batch_instance_offset,
+                                                             offsetof(DrawParams, instance_offset) / 4);
+        cmd_lists_[frame_idx_]->SetGraphicsRoot32BitConstant(0, batch_instance_count,
+                                                             offsetof(DrawParams, instance_count) / 4);
 
         auto const group_count{
           static_cast<std::uint32_t>(std::ceilf(
@@ -1241,6 +1278,24 @@ Renderer::Renderer(ComPtr<IDXGIFactory7> factory, ComPtr<ID3D12Device10> device,
 
   CreateSwapChainRtvs();
   CreateDepthBufferDsv();
+
+#ifdef DYNAMIC_CBV
+  for (auto i{0}; i < max_frames_in_flight_; i++) {
+    cam_cb_heap_indices_[i] = AllocateResourceDescriptorIndex();
+
+    D3D12_CONSTANT_BUFFER_VIEW_DESC const cbv_desc{
+      cam_cbs_[i]->GetResource()->GetGPUVirtualAddress(),
+      static_cast<UINT>(NextMultipleOf<std::size_t>(256, sizeof(Material)))
+    };
+
+    device_->CreateConstantBufferView(&cbv_desc, CD3DX12_CPU_DESCRIPTOR_HANDLE{
+                                        res_desc_heap_->GetCPUDescriptorHandleForHeapStart(),
+                                        static_cast<INT>(cam_cb_heap_indices_[i]),
+                                        device_->GetDescriptorHandleIncrementSize(
+                                          D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
+                                      });
+  }
+#endif
 }
 
 

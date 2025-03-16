@@ -5,4 +5,6 @@
 #define MESHLET_MAX_VERTS 128
 #define MESHLET_MAX_PRIMS 256
 
+#define DYNAMIC_CBV
+
 #endif

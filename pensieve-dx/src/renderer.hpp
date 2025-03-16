@@ -119,6 +119,7 @@ private:
 
   std::array<Microsoft::WRL::ComPtr<D3D12MA::Allocation>, max_frames_in_flight_> cam_cbs_;
   std::array<void*, max_frames_in_flight_> cam_cb_ptrs_;
+  std::array<UINT, max_frames_in_flight_> cam_cb_heap_indices_;
 
   UINT next_free_res_desc_idx_{0};
   int frame_idx_{0};

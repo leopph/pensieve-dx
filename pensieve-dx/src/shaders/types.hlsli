@@ -8,6 +8,12 @@ struct DrawParams {
   uint meshlet_offset;
   uint instance_count;
   uint instance_offset;
+
+#ifdef DYNAMIC_CBV
+  uint cam_buf_idx;
+  uint mesh_buf_idx;
+  uint mtl_buf_idx;
+#endif
 };
 
 
