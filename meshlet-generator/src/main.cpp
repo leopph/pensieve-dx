@@ -31,7 +31,7 @@
 namespace pensieve {
 namespace {
 constexpr auto kMeshletMaxVerts{128};
-constexpr auto kMeshletMaxPrims{256};
+constexpr auto kMeshletMaxPrims{128};
 }
 
 auto LoadScene(
