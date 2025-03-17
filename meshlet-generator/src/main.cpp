@@ -42,6 +42,9 @@ auto LoadScene(std::filesystem::path const& path) -> std::expected<SceneData, st
     AI_CONFIG_PP_RVC_FLAGS,
     aiComponent_COLORS | aiComponent_BONEWEIGHTS | aiComponent_ANIMATIONS | aiComponent_LIGHTS | aiComponent_CAMERAS);
   importer.SetPropertyInteger(AI_CONFIG_PP_SBP_REMOVE, aiPrimitiveType_POINT | aiPrimitiveType_LINE);
+
+  std::cout << "Loading file...";
+
   auto const scene{
     importer.ReadFile(path.string().c_str(),
                       aiProcess_CalcTangentSpace | aiProcess_JoinIdenticalVertices | aiProcess_Triangulate |
@@ -53,6 +56,8 @@ auto LoadScene(std::filesystem::path const& path) -> std::expected<SceneData, st
   if (!scene) {
     return std::unexpected{importer.GetErrorString()};
   }
+
+  std::cout << " done\nConverting model...";
 
   std::unordered_map<std::string, unsigned> tex_paths_to_idx;
 
@@ -256,12 +261,16 @@ auto LoadScene(std::filesystem::path const& path) -> std::expected<SceneData, st
                                   });
   }
 
+  std::cout << " done";
+
   return scene_data;
 }
 
 
 
 auto WriteScene(std::ofstream& out, SceneData const& scene) -> void {
+  std::cout << "\nWriting meshletized model...";
+
   std::span constexpr header{"pensieve"};
   out.write(header.data(), header.size());
 
@@ -374,6 +383,8 @@ auto WriteScene(std::ofstream& out, SceneData const& scene) -> void {
               mesh_index_count * sizeof(decltype(node.mesh_indices )::value_type));
     out.write(std::bit_cast<char const*>(&node.transform), sizeof(node.transform));
   }
+
+  std::cout << " done";
 }
 }
 
@@ -385,23 +396,23 @@ auto main(int const argc, char** const argv) -> int {
     return EXIT_SUCCESS;
   }
 
-  std::cout << "Processing mesh...\n";
-
   auto const scene{pensieve::LoadScene(argv[1])};
 
   if (!scene) {
-    std::cerr << "Error: " << scene.error() << '\n';
+    std::cerr << "\nError: " << scene.error() << '\n';
     return EXIT_FAILURE;
   }
 
   std::ofstream out{argv[2], std::ios::binary | std::ios::out | std::ios::trunc};
 
   if (!out.is_open()) {
-    std::cerr << "Failed to open output file.\n";
+    std::cerr << "\nFailed to open output file.\n";
     return EXIT_FAILURE;
   }
 
   WriteScene(out, *scene);
+
+  std::cout << std::endl;
 
   return EXIT_SUCCESS;
 }
