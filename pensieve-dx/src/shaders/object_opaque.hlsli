@@ -145,9 +145,12 @@ void ms_main(
 
 
 
-static uint const kLightCount = 6;
+static uint const kLightCount = 1;
 static float3 const kLightDirs[kLightCount] = {
-  float3(1, 0, 0), float3(0, 1, 0), float3(0, 0, 1), float3(-1, 0, 0), float3(0, -1, 0), float3(0, 0, -1)
+  normalize(float3(-1, -1, 1))
+};
+static float const kLightIntensities[kLightCount] = {
+  10
 };
 
 
@@ -246,10 +249,10 @@ float4 ps_main(PsIn const ps_in) : SV_Target {
     float3 const specular_factor = f;
     float3 const diffuse_factor = (1 - specular_factor) * (1 - metallic);
 
-    direct_lighting += n_dot_l * (diffuse_factor * diffuse + specular);
+    direct_lighting += (diffuse_factor * diffuse + specular) * n_dot_l * kLightIntensities[i];
   }
 
-  float3 const ambient_lighting = 0.03 * base_color;
+  float3 const ambient_lighting = 0.5 * base_color;
 
   float3 out_color = ambient_lighting + direct_lighting + emission;
   out_color /= out_color + 1;
