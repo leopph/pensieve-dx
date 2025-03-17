@@ -47,8 +47,7 @@ auto LoadScene(std::filesystem::path const& path) -> std::expected<SceneData, st
                       aiProcess_CalcTangentSpace | aiProcess_JoinIdenticalVertices | aiProcess_Triangulate |
                       aiProcess_RemoveComponent | aiProcess_GenNormals | aiProcess_ValidateDataStructure |
                       aiProcess_RemoveRedundantMaterials | aiProcess_SortByPType | aiProcess_GenUVCoords |
-                      aiProcess_FindInstances | aiProcess_OptimizeMeshes | aiProcess_OptimizeGraph |
-                      aiProcess_GlobalScale | aiProcess_ConvertToLeftHanded)
+                      aiProcess_ConvertToLeftHanded)
   };
 
   if (!scene) {
