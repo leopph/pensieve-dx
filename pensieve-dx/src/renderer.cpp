@@ -940,10 +940,11 @@ auto Renderer::DrawFrame(GpuScene const& scene,
       Height)
   };
 
+  auto const xm_cam_rot{XMLoadFloat4(&cam.rotation)};
+
   auto const xm_cam_pos{
     DirectX::XMVectorNegativeMultiplySubtract(
-      DirectX::XMVector3Rotate(DirectX::XMVectorSet(0, 0, 1, 0),
-                               XMLoadFloat4(&cam.rotation)),
+      DirectX::XMVector3Rotate(DirectX::XMVectorSet(0, 0, 1, 0), xm_cam_rot),
       DirectX::XMVectorReplicate(cam.distance), XMLoadFloat3(&cam.center))
   };
 
@@ -951,10 +952,10 @@ auto Renderer::DrawFrame(GpuScene const& scene,
   XMStoreFloat3(&cam_pos, xm_cam_pos);
 
   auto const view_proj_mtx{
-    [&cam, &xm_cam_pos, aspect_ratio] {
+    [&cam, &xm_cam_pos, aspect_ratio, &xm_cam_rot] {
       auto const view_mtx{
-        DirectX::XMMatrixLookAtLH(xm_cam_pos, XMLoadFloat3(&cam.center),
-                                  DirectX::XMVectorSet(0, 1, 0, 0))
+        XMMatrixMultiply(DirectX::XMMatrixTranslationFromVector(DirectX::XMVectorNegate(xm_cam_pos)),
+                         DirectX::XMMatrixRotationQuaternion(DirectX::XMQuaternionConjugate(xm_cam_rot)))
       };
       auto const proj_mtx{
         DirectX::XMMatrixPerspectiveFovLH(
