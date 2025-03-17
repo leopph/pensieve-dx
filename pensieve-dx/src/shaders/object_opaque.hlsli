@@ -11,7 +11,8 @@ struct PsIn {
   float3 position_ws : POSITION;
   float3 normal_ws : NORMAL;
   float2 uv : TEXCOORD;
-  float3x3 tbn_mtx_ws : TBN;
+  float3 tangent_ws : TANGENT;
+  float3 bitangent_ws : BITANGENT;
 };
 
 
@@ -57,12 +58,12 @@ PsIn CalculateVertex(uint const vertex_idx, uint const instance_idx) {
     StructuredBuffer<float4> const tangents = ResourceDescriptorHeap[g_mesh_params.tan_buf_idx];
     float3 const tangent_os = normalize(tangents[vertex_idx].xyz);
 
-    float3 tangent_ws = normalize(mul(tangent_os, (float3x3)instance_data.model_mtx));
-    tangent_ws = normalize(tangent_ws - dot(tangent_ws, normal_ws) * normal_ws);
-    float3 const bitangent_ws = cross(normal_ws, tangent_ws);
-    ps_in.tbn_mtx_ws = float3x3(tangent_ws, bitangent_ws, normal_ws);
+    ps_in.tangent_ws = normalize(mul(tangent_os, (float3x3)instance_data.model_mtx));
+    ps_in.tangent_ws = normalize(ps_in.tangent_ws - dot(ps_in.tangent_ws, normal_ws) * normal_ws);
+    ps_in.bitangent_ws = cross(normal_ws, ps_in.tangent_ws);
   } else {
-    ps_in.tbn_mtx_ws = 0;
+    ps_in.tangent_ws = 0;
+    ps_in.bitangent_ws = 0;
   }
 
   if (g_mesh_params.uv_buf_idx != INVALID_RESOURCE_IDX) {
@@ -214,8 +215,8 @@ float4 ps_main(PsIn const ps_in) : SV_Target {
 
     if (g_material.normal_map_idx != INVALID_RESOURCE_IDX && g_mesh_params.tan_buf_idx != INVALID_RESOURCE_IDX) {
       Texture2D const normal_map = ResourceDescriptorHeap[g_material.normal_map_idx];
-      normal = normal_map.Sample(g_sampler, ps_in.uv).rgb * 2 - 1;
-      normal = normalize(mul(normalize(normal), ps_in.tbn_mtx_ws));
+      normal = mul(normalize(normal_map.Sample(g_sampler, ps_in.uv).rgb * 2 - 1),
+                   float3x3(normalize(ps_in.tangent_ws), normalize(ps_in.bitangent_ws), normal));
     }
   }
 
