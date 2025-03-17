@@ -21,8 +21,8 @@ auto Window::PollEvents() noexcept -> void {
     mouse_pos_[i] += mouse_delta_[i];
   }
 
-  is_mouse_hovered_ = mouse_pos_[0] >= 0 && mouse_pos_[1] >= 0 && mouse_pos_[0]
-    < static_cast<int>(size_[0]) && mouse_pos_[1] < static_cast<int>(size_[1]);
+  is_mouse_hovered_ = mouse_pos_[0] >= 0 && mouse_pos_[1] >= 0 && mouse_pos_[0] < static_cast<int>(size_[0]) &&
+    mouse_pos_[1] < static_cast<int>(size_[1]);
 }
 
 
@@ -105,11 +105,8 @@ Window::operator bool() const noexcept {
 
 
 
-auto Window::WindowProc(HWND const hwnd, UINT const msg, WPARAM const wparam,
-                        LPARAM const lparam) -> LRESULT {
-  if (auto const self{
-    std::bit_cast<Window*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA))
-  }) {
+auto Window::WindowProc(HWND const hwnd, UINT const msg, WPARAM const wparam, LPARAM const lparam) -> LRESULT {
+  if (auto const self{std::bit_cast<Window*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA))}) {
     switch (msg) {
     case WM_CLOSE: {
       self->should_close_ = true;
@@ -189,9 +186,8 @@ Window::Window(HWND const hwnd) :
 
 auto Window::Create() -> std::expected<Window, std::string> {
   WNDCLASSEXW const window_class{
-    sizeof(WNDCLASSEX), 0, &WindowProc, 0, 0, GetModuleHandleW(nullptr),
-    nullptr, LoadCursorW(nullptr, IDC_ARROW), nullptr, nullptr, L"Pensieve-DX",
-    nullptr
+    sizeof(WNDCLASSEX), 0, &WindowProc, 0, 0, GetModuleHandleW(nullptr), nullptr, LoadCursorW(nullptr, IDC_ARROW),
+    nullptr, nullptr, L"Pensieve-DX", nullptr
   };
 
   if (!RegisterClassExW(&window_class)) {
@@ -199,10 +195,8 @@ auto Window::Create() -> std::expected<Window, std::string> {
   }
 
   auto const hwnd{
-    CreateWindowExW(0, window_class.lpszClassName, L"Pensieve-DX",
-                    WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
-                    CW_USEDEFAULT, CW_USEDEFAULT, nullptr, nullptr,
-                    window_class.hInstance, nullptr)
+    CreateWindowExW(0, window_class.lpszClassName, L"Pensieve-DX", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+                    CW_USEDEFAULT, CW_USEDEFAULT, nullptr, nullptr, window_class.hInstance, nullptr)
   };
 
   if (!hwnd) {

@@ -12,11 +12,15 @@ using Float3 = std::array<float, 3>;
 using Float4 = std::array<float, 4>;
 using Float4X4 = std::array<float, 16>;
 
+
+
 struct TextureData {
   std::uint32_t width;
   std::uint32_t height;
   std::unique_ptr<std::uint8_t[]> bytes;
 };
+
+
 
 struct MaterialData {
   Float3 base_color;
@@ -30,6 +34,8 @@ struct MaterialData {
   std::optional<std::uint32_t> normal_map_idx;
 };
 
+
+
 struct MeshletData {
   std::uint32_t vert_count;
   std::uint32_t vert_offset;
@@ -37,11 +43,15 @@ struct MeshletData {
   std::uint32_t prim_offset;
 };
 
+
+
 struct MeshletTriangleIndexData {
   std::uint32_t idx0 : 10;
   std::uint32_t idx1 : 10;
   std::uint32_t idx2 : 10;
 };
+
+
 
 struct MeshData {
   std::vector<Float4> positions;
@@ -54,10 +64,14 @@ struct MeshData {
   std::uint32_t material_idx;
 };
 
+
+
 struct NodeData {
   std::vector<std::uint32_t> mesh_indices;
   Float4X4 transform;
 };
+
+
 
 struct SceneData {
   std::vector<TextureData> textures;

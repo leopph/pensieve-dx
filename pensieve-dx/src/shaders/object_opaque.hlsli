@@ -83,10 +83,13 @@ uint3 UnpackIndices(uint const packed_indices) {
 
 
 
-[outputtopology("triangle")][numthreads(MESHLET_MAX_VERTS, 1, 1)]
-void ms_main(uint const gid : SV_GroupID, uint const gtid : SV_GroupThreadID,
-             out vertices PsIn out_verts[MESHLET_MAX_VERTS],
-             out indices uint3 out_tris[MESHLET_MAX_PRIMS]) {
+[outputtopology("triangle")]
+[numthreads(MESHLET_MAX_VERTS, 1, 1)]
+void ms_main(
+  uint const gid : SV_GroupID,
+  uint const gtid : SV_GroupThreadID,
+  out vertices PsIn out_verts[MESHLET_MAX_VERTS],
+  out indices uint3 out_tris[MESHLET_MAX_PRIMS]) {
 #ifdef DYNAMIC_CBV
   ConstantBuffer<MeshParams> const g_mesh_params = ResourceDescriptorHeap[g_draw_params.mesh_buf_idx];
 #endif

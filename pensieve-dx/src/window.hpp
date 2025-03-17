@@ -40,8 +40,7 @@ public:
   [[nodiscard]] explicit operator bool() const noexcept;
 
 private:
-  static auto CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam,
-                                  LPARAM lparam) -> LRESULT;
+  static auto CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) -> LRESULT;
 
   explicit Window(HWND hwnd);
 

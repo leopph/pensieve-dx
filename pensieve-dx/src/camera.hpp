@@ -14,11 +14,10 @@ struct Camera {
   DirectX::XMFLOAT4 rotation{0, 0, 0, 1};
   DirectX::XMFLOAT3 center;
 
-  Camera(float vertical_degrees_fov, float near_clip_plane,
-         float far_clip_plane, float distance, DirectX::XMFLOAT3 const& center);
+  Camera(float vertical_degrees_fov, float near_clip_plane, float far_clip_plane, float distance,
+         DirectX::XMFLOAT3 const& center);
 
-  auto Update(std::span<int const, 2> mouse_delta, int mouse_wheel_deta,
-              bool is_mouse_hovered, bool is_lmb_down,
+  auto Update(std::span<int const, 2> mouse_delta, int mouse_wheel_deta, bool is_mouse_hovered, bool is_lmb_down,
               bool is_rmb_down) -> void;
 };
 }

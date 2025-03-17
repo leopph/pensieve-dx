@@ -58,8 +58,7 @@ auto main(int const argc, char* argv[]) -> int {
       }
     }
 
-    cam.Update(window->GetMouseDelta(), window->GetMouseWheelDelta(),
-               window->IsMouseHovered(), window->IsLmbDown(),
+    cam.Update(window->GetMouseDelta(), window->GetMouseWheelDelta(), window->IsMouseHovered(), window->IsLmbDown(),
                window->IsRmbDown());
 
     if (auto const exp{renderer->DrawFrame(*gpu_scene, cam)}; !exp) {

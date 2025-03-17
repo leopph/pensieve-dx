@@ -14,10 +14,14 @@ struct GpuTexture {
   UINT srv_idx;
 };
 
+
+
 struct GpuMaterial {
   Microsoft::WRL::ComPtr<D3D12MA::Allocation> res;
   UINT cbv_idx;
 };
+
+
 
 struct GpuMesh {
   Microsoft::WRL::ComPtr<D3D12MA::Allocation> pos_buf;
@@ -51,6 +55,8 @@ struct GpuMesh {
 
   UINT mesh_buf_cbv_idx;
 };
+
+
 
 struct GpuScene {
   std::vector<GpuTexture> textures;
