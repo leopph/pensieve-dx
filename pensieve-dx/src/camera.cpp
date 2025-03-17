@@ -16,8 +16,7 @@ auto Camera::Update(std::span<int const, 2> const mouse_delta, int const mouse_w
   if (is_mouse_hovered) {
     if (is_rmb_down) {
       auto rot{XMLoadFloat4(&rotation)};
-      rot = DirectX::XMQuaternionMultiply(
-        rot, DirectX::XMQuaternionRotationAxis(DirectX::XMVectorSet(0, 1, 0, 0), mouse_delta[0] * sensitivity));
+      rot = DirectX::XMQuaternionMultiply(DirectX::XMQuaternionRotationAxis(DirectX::XMVectorSet(0, 1, 0, 0), mouse_delta[0] * sensitivity), rot);
       rot = DirectX::XMQuaternionMultiply(
         DirectX::XMQuaternionRotationAxis(DirectX::XMVectorSet(1, 0, 0, 0), mouse_delta[1] * sensitivity), rot);
       XMStoreFloat4(&rotation, rot);
