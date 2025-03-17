@@ -25,53 +25,85 @@ auto Window::PollEvents() noexcept -> void {
     < static_cast<int>(size_[0]) && mouse_pos_[1] < static_cast<int>(size_[1]);
 }
 
+
+
 auto Window::ShouldClose() const noexcept -> bool {
   return should_close_;
 }
+
+
 
 auto Window::WasResized() const noexcept -> bool {
   return was_resized_;
 }
 
+
+
 auto Window::GetSize() const noexcept -> std::span<unsigned const, 2> {
   return size_;
 }
+
+
 
 auto Window::IsLmbDown() const noexcept -> bool {
   return is_lmb_down_;
 }
 
+
+
+auto Window::IsRmbDown() const noexcept -> bool {
+  return is_rmb_down_;
+}
+
+
+
 auto Window::IsMmbDown() const noexcept -> bool {
   return is_mmb_down_;
 }
+
+
 
 auto Window::IsMouseHovered() const noexcept -> bool {
   return is_mouse_hovered_;
 }
 
+
+
 auto Window::GetMouseDelta() const noexcept -> std::span<int const, 2> {
   return mouse_delta_;
 }
+
+
 
 auto Window::GetMouseWheelDelta() const noexcept -> int {
   return mouse_wheel_delta_;
 }
 
+
+
 auto Window::ToHwnd() const noexcept -> HWND {
   return hwnd_;
 }
+
+
 
 auto Window::IsValid() const noexcept -> bool {
   return hwnd_ != nullptr;
 }
 
+
+
 Window::operator HWND__*() const noexcept {
   return ToHwnd();
 }
 
+
+
 Window::operator bool() const noexcept {
   return IsValid();
 }
+
+
 
 auto Window::WindowProc(HWND const hwnd, UINT const msg, WPARAM const wparam,
                         LPARAM const lparam) -> LRESULT {
@@ -98,6 +130,16 @@ auto Window::WindowProc(HWND const hwnd, UINT const msg, WPARAM const wparam,
 
     case WM_LBUTTONUP: {
       self->is_lmb_down_ = false;
+      return 0;
+    }
+
+    case WM_RBUTTONDOWN: {
+      self->is_rmb_down_ = true;
+      return 0;
+    }
+
+    case WM_RBUTTONUP: {
+      self->is_rmb_down_ = false;
       return 0;
     }
 
@@ -129,6 +171,8 @@ auto Window::WindowProc(HWND const hwnd, UINT const msg, WPARAM const wparam,
   return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
+
+
 Window::Window(HWND const hwnd) :
   hwnd_{hwnd} {
   SetWindowLongPtrW(hwnd_, GWLP_USERDATA, std::bit_cast<LONG_PTR>(this));
@@ -140,6 +184,8 @@ Window::Window(HWND const hwnd) :
 
   ShowWindow(hwnd_, SW_SHOW);
 }
+
+
 
 auto Window::Create() -> std::expected<Window, std::string> {
   WNDCLASSEXW const window_class{
@@ -166,10 +212,14 @@ auto Window::Create() -> std::expected<Window, std::string> {
   return Window{hwnd};
 }
 
+
+
 Window::Window(Window&& other) noexcept :
   Window{other.hwnd_} {
   other.hwnd_ = nullptr;
 }
+
+
 
 Window::~Window() {
   DestroyWindow(hwnd_);

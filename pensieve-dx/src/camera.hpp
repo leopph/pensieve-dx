@@ -19,6 +19,6 @@ struct Camera {
 
   auto Update(std::span<int const, 2> mouse_delta, int mouse_wheel_deta,
               bool is_mouse_hovered, bool is_lmb_down,
-              bool is_mmb_down) -> void;
+              bool is_rmb_down) -> void;
 };
 }

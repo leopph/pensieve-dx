@@ -13,9 +13,9 @@ Camera::Camera(float const vertical_degrees_fov, float const near_clip_plane,
 
 auto Camera::Update(std::span<int const, 2> const mouse_delta,
                     int const mouse_wheel_deta, bool const is_mouse_hovered,
-                    bool const is_lmb_down, bool const is_mmb_down) -> void {
+                    bool const is_lmb_down, bool const is_rmb_down) -> void {
   if (is_mouse_hovered) {
-    if (is_lmb_down) {
+    if (is_rmb_down) {
       auto rot{XMLoadFloat4(&rotation)};
       rot = DirectX::XMQuaternionMultiply(
         rot, DirectX::XMQuaternionRotationAxis(DirectX::XMVectorSet(0, 1, 0, 0),
@@ -24,7 +24,7 @@ auto Camera::Update(std::span<int const, 2> const mouse_delta,
         DirectX::XMQuaternionRotationAxis(DirectX::XMVectorSet(1, 0, 0, 0),
                                           mouse_delta[1] * sensitivity), rot);
       XMStoreFloat4(&rotation, rot);
-    } else if (is_mmb_down) {
+    } else if (is_lmb_down) {
       auto const rot{XMLoadFloat4(&rotation)};
       auto const right{
         DirectX::XMVector3Rotate(DirectX::XMVectorSet(1, 0, 0, 0), rot)
