@@ -154,7 +154,7 @@ auto LoadScene(std::filesystem::path const& path) -> std::expected<SceneData, st
     }
 
     if (has_emission_map) {
-      in.read(std::bit_cast<char*>(&emission_map_idx.emplace()), sizeof(decltype(emission_map_idx)));
+      in.read(std::bit_cast<char*>(&emission_map_idx.emplace()), sizeof(decltype(emission_map_idx)::value_type));
 
       if (in.gcount() != sizeof(*emission_map_idx)) {
         return std::unexpected{std::format("Failed to read material {} emission map index.", i)};
